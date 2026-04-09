@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null)
   const channelHandle: string = body?.channel_handle ?? ''
-  const requestedCount = 25
+  // YouTube RSS feeds are capped at 15 entries regardless of channel size.
+  // The YouTube Data API (YOUTUBE_DATA_API_KEY) can extend this, but for now
+  // we work within the RSS limit.
+  const requestedCount = 15
 
   if (!channelHandle) {
     return NextResponse.json({ error: 'channel_handle is required' }, { status: 400 })

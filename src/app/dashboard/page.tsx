@@ -45,7 +45,7 @@ function computeCorrelations(
       thumbnail_url: videoMap[id].thumbnail_url,
     }))
 
-  if (pairs.length < 5) return []
+  if (pairs.length < 5) return null
 
   const roiKeys = Object.keys(ROI_REGISTRY)
 
@@ -87,7 +87,8 @@ export default function DashboardPage() {
   const [usage, setUsage] = useState<UsageInfo | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [batch, setBatch] = useState<BatchState | null>(null)
-  const [correlations, setCorrelations] = useState<CorrelationEntry[] | null>(null)
+  const [correlations, setCorrelations] = useState<CorrelationEntry[] | null | 'insufficient'>(null)
+  const [batchDiag, setBatchDiag] = useState<{ completed: number; failed: number; noViewCount: number } | null>(null)
   const [limitError, setLimitError] = useState<LimitError | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -186,8 +187,14 @@ export default function DashboardPage() {
 
         if (pendingRef.current.size === 0) {
           clearInterval(pollRef.current!)
+          const completed = Object.values(newResults).filter(r => r.status === 'complete' && r.roi_data).length
+          const failed = Object.values(newResults).filter(r => r.status === 'failed').length
+          const noViewCount = Object.entries(newResults).filter(
+            ([id, r]) => r.status === 'complete' && r.roi_data && videoMap[id]?.view_count == null
+          ).length
+          setBatchDiag({ completed, failed, noViewCount })
           const corr = computeCorrelations(newResults, videoMap)
-          setCorrelations(corr)
+          setCorrelations(corr ?? 'insufficient')
           setAnalyzing(false)
           refreshUsage(tok)
         }
@@ -319,13 +326,21 @@ export default function DashboardPage() {
 
         {correlations !== null && batch && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-            {correlations.length === 0 ? (
+            {correlations === 'insufficient' ? (
               <div className="space-y-3">
-                <p className="text-sm text-gray-400">
-                  Not enough data to compute correlations. At least 5 videos need a completed
-                  analysis and a view count. Try a channel with more public videos, or add a
-                  YouTube Data API key for view count enrichment.
-                </p>
+                <p className="text-sm font-medium text-white">Not enough data for correlations</p>
+                {batchDiag && (
+                  <ul className="text-sm text-gray-400 space-y-1">
+                    <li>Analyses completed: <span className="text-white">{batchDiag.completed}</span></li>
+                    <li>Analyses failed: <span className={batchDiag.failed > 0 ? 'text-rose-400' : 'text-white'}>{batchDiag.failed}</span>
+                      {batchDiag.failed > 0 && <span className="text-gray-600"> — check Modal logs for errors</span>}
+                    </li>
+                    <li>Missing view count: <span className={batchDiag.noViewCount > 0 ? 'text-amber-400' : 'text-white'}>{batchDiag.noViewCount}</span>
+                      {batchDiag.noViewCount > 0 && <span className="text-gray-600"> — add <code className="text-xs bg-gray-800 px-1 rounded">YOUTUBE_DATA_API_KEY</code> to Vercel env vars</span>}
+                    </li>
+                  </ul>
+                )}
+                <p className="text-xs text-gray-600">At least 5 videos need both a successful analysis and a view count.</p>
                 <AttributionFooter />
               </div>
             ) : (
