@@ -92,8 +92,11 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pendingRef = useRef<Set<string>>(new Set())
+  const [mounted, setMounted] = useState(false)
 
   // ── Auth + consent check ──────────────────────────────────────────────────
+
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -237,6 +240,10 @@ export default function DashboardPage() {
     await supabase.auth.signOut()
     router.push('/auth/login')
   }
+
+  // Render nothing on the server — this page is client-only (auth-gated).
+  // Prevents hydration mismatches from browser extensions or locale differences.
+  if (!mounted) return null
 
   if (consentDone === null) {
     return (
