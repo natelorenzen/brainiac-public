@@ -145,11 +145,22 @@ export interface CreativePerformance {
 
 // ─── YouTube ──────────────────────────────────────────────────────────────────
 
-export interface YouTubeThumbnail {
+export interface VideoMeta {
   video_id: string
   title: string
-  published: string
+  view_count: number | null
   thumbnail_url: string
+}
+
+// ─── Correlation ──────────────────────────────────────────────────────────────
+
+export interface CorrelationEntry {
+  region_key: string
+  label: string
+  description: string
+  /** Pearson r against log(view_count + 1) */
+  r: number
+  data_points: Array<{ activation: number; log_views: number; title: string; thumbnail_url: string }>
 }
 
 // ─── API error shape for 429 / limit errors ───────────────────────────────────

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null)
   const channelHandle: string = body?.channel_handle ?? ''
-  const requestedCount: number = Math.min(Math.max(1, parseInt(body?.thumbnail_count ?? '5', 10)), 10)
+  const requestedCount = 25
 
   if (!channelHandle) {
     return NextResponse.json({ error: 'channel_handle is required' }, { status: 400 })
@@ -90,9 +90,9 @@ export async function POST(req: NextRequest) {
   }
 
   const analysisIds: string[] = []
+  const videoMap: Record<string, { video_id: string; title: string; view_count: number | null; thumbnail_url: string }> = {}
 
   for (const thumb of thumbnails) {
-    // Create analysis record
     const { data: analysis } = await supabaseServer
       .from('analyses')
       .insert({
@@ -106,7 +106,6 @@ export async function POST(req: NextRequest) {
 
     if (!analysis) continue
 
-    // Upload thumbnail
     let storageKey: string
     try {
       storageKey = await uploadCreative(thumb.thumbnail_bytes, analysis.id, 'image/jpeg')
@@ -127,21 +126,25 @@ export async function POST(req: NextRequest) {
         supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       })
       analysisIds.push(analysis.id)
+      videoMap[analysis.id] = {
+        video_id: thumb.video_id,
+        title: thumb.title,
+        view_count: thumb.view_count,
+        thumbnail_url: thumb.thumbnail_url,
+      }
     } catch {
       await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
     }
   }
 
-  // Increment usage for dispatched jobs
   if (analysisIds.length > 0) {
     await incrementUsage(user.id, analysisIds.length)
   }
 
   return NextResponse.json({
     analysis_ids: analysisIds,
+    video_map: videoMap,
     queued: analysisIds.length,
-    requested: requestedCount,
-    capped_to: actualCount !== requestedCount ? actualCount : undefined,
     attribution: ATTRIBUTION,
   })
 }

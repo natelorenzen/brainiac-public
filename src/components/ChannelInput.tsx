@@ -4,19 +4,18 @@ import { useState } from 'react'
 import { Video } from 'lucide-react'
 
 interface Props {
-  onSubmit: (handle: string, count: number) => void
+  onSubmit: (handle: string) => void
   disabled?: boolean
 }
 
 export function ChannelInput({ onSubmit, disabled }: Props) {
   const [handle, setHandle] = useState('')
-  const [count, setCount] = useState(5)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const cleaned = handle.trim().replace(/^@/, '')
     if (!cleaned) return
-    onSubmit(cleaned, count)
+    onSubmit(cleaned)
   }
 
   return (
@@ -34,22 +33,8 @@ export function ChannelInput({ onSubmit, disabled }: Props) {
         />
       </div>
 
-      <div className="flex items-center gap-3">
-        <label className="text-xs text-gray-500 whitespace-nowrap">Thumbnails to analyze:</label>
-        <input
-          type="range"
-          min={1}
-          max={10}
-          value={count}
-          onChange={e => setCount(parseInt(e.target.value, 10))}
-          disabled={disabled}
-          className="flex-1 accent-indigo-500"
-        />
-        <span className="text-sm text-white font-mono w-4">{count}</span>
-      </div>
-
       <p className="text-xs text-gray-600">
-        Counts as {count} {count === 1 ? 'analysis' : 'analyses'} toward your daily and monthly limits.
+        Analyzes the most recent 25 videos. Counts as 25 analyses toward your limits.
       </p>
 
       <button

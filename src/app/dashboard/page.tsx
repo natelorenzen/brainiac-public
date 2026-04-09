@@ -5,30 +5,96 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { ConsentGate } from '@/components/ConsentGate'
 import { UsageMeter } from '@/components/UsageMeter'
-import { UploadZone } from '@/components/UploadZone'
 import { ChannelInput } from '@/components/ChannelInput'
 import { LoadingBrain } from '@/components/LoadingBrain'
-import { HeatmapPanel } from '@/components/HeatmapPanel'
-import { ROIBarChart } from '@/components/ROIBarChart'
+import { CorrelationResults } from '@/components/CorrelationResults'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { LogOut } from 'lucide-react'
-import type { AnalysisResult, UsageInfo, ConsentType, LimitError } from '@/types'
+import type { AnalysisResult, UsageInfo, ConsentType, LimitError, VideoMeta, CorrelationEntry } from '@/types'
+import { ROI_REGISTRY } from '@/lib/roi'
 
-type Tab = 'upload' | 'channel'
+// ── Pearson correlation ───────────────────────────────────────────────────────
+
+function pearson(x: number[], y: number[]): number {
+  const n = x.length
+  if (n < 2) return 0
+  const mx = x.reduce((a, b) => a + b, 0) / n
+  const my = y.reduce((a, b) => a + b, 0) / n
+  const num = x.reduce((sum, xi, i) => sum + (xi - mx) * (y[i] - my), 0)
+  const den = Math.sqrt(
+    x.reduce((sum, xi) => sum + (xi - mx) ** 2, 0) *
+    y.reduce((sum, yi) => sum + (yi - my) ** 2, 0)
+  )
+  return den === 0 ? 0 : num / den
+}
+
+function computeCorrelations(
+  results: Record<string, AnalysisResult>,
+  videoMap: Record<string, VideoMeta>
+): CorrelationEntry[] {
+  const pairs = Object.entries(results)
+    .filter(([id, r]) =>
+      r.status === 'complete' &&
+      r.roi_data &&
+      videoMap[id]?.view_count != null
+    )
+    .map(([id, r]) => ({
+      roi_data: r.roi_data!,
+      log_views: Math.log((videoMap[id].view_count ?? 0) + 1),
+      title: videoMap[id].title,
+      thumbnail_url: videoMap[id].thumbnail_url,
+    }))
+
+  if (pairs.length < 5) return []
+
+  const roiKeys = Object.keys(ROI_REGISTRY)
+
+  return roiKeys
+    .map(key => {
+      const activations = pairs.map(p => p.roi_data.find(r => r.region_key === key)?.activation ?? 0)
+      const logViews = pairs.map(p => p.log_views)
+      const r = pearson(activations, logViews)
+      return {
+        region_key: key,
+        label: ROI_REGISTRY[key].label,
+        description: ROI_REGISTRY[key].description,
+        r,
+        data_points: pairs.map((p, i) => ({
+          activation: activations[i],
+          log_views: logViews[i],
+          title: p.title,
+          thumbnail_url: p.thumbnail_url,
+        })),
+      }
+    })
+    .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface BatchState {
+  channelHandle: string
+  videoMap: Record<string, VideoMeta>
+  results: Record<string, AnalysisResult>
+  total: number
+  complete: number
+}
 
 export default function DashboardPage() {
   const router = useRouter()
   const [token, setToken] = useState<string | null>(null)
-  const [consentDone, setConsentDone] = useState<boolean | null>(null) // null = loading
+  const [consentDone, setConsentDone] = useState<boolean | null>(null)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
-  const [tab, setTab] = useState<Tab>('upload')
   const [analyzing, setAnalyzing] = useState(false)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [batch, setBatch] = useState<BatchState | null>(null)
+  const [correlations, setCorrelations] = useState<CorrelationEntry[] | null>(null)
   const [limitError, setLimitError] = useState<LimitError | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pendingRef = useRef<Set<string>>(new Set())
 
   // ── Auth + consent check ──────────────────────────────────────────────────
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/auth/login'); return }
@@ -45,7 +111,6 @@ export default function DashboardPage() {
 
       const consentData = await consentRes.json()
       setConsentDone(consentData.all_required_consents_given ?? false)
-
       if (usageRes.ok) setUsage(await usageRes.json())
     })
   }, [router])
@@ -57,7 +122,6 @@ export default function DashboardPage() {
     if (res.ok) setUsage(await res.json())
   }, [])
 
-  // ── Consent submit ────────────────────────────────────────────────────────
   async function handleConsent(types: ConsentType[]) {
     if (!token) return
     const res = await fetch('/api/users/me/consent', {
@@ -68,69 +132,82 @@ export default function DashboardPage() {
     if (res.ok) setConsentDone(true)
   }
 
-  // ── Poll for analysis result ──────────────────────────────────────────────
-  function startPolling(analysisId: string, tok: string) {
+  // ── Batch polling ─────────────────────────────────────────────────────────
+
+  function startBatchPoll(
+    allIds: string[],
+    videoMap: Record<string, VideoMeta>,
+    channelHandle: string,
+    tok: string
+  ) {
     if (pollRef.current) clearInterval(pollRef.current)
+    pendingRef.current = new Set(allIds)
+
+    setBatch({
+      channelHandle,
+      videoMap,
+      results: {},
+      total: allIds.length,
+      complete: 0,
+    })
+
     pollRef.current = setInterval(async () => {
-      const res = await fetch(`/api/analyze/${analysisId}`, {
-        headers: { Authorization: `Bearer ${tok}` },
-      })
-      if (!res.ok) return
-      const data: AnalysisResult = await res.json()
-      if (data.status === 'complete' || data.status === 'failed') {
+      if (pendingRef.current.size === 0) {
         clearInterval(pollRef.current!)
-        setAnalyzing(false)
-        setResult(data)
-        refreshUsage(tok)
+        return
       }
+
+      const toCheck = [...pendingRef.current]
+      const settled: Record<string, AnalysisResult> = {}
+
+      await Promise.all(
+        toCheck.map(async id => {
+          const res = await fetch(`/api/analyze/${id}`, {
+            headers: { Authorization: `Bearer ${tok}` },
+          })
+          if (!res.ok) return
+          const data: AnalysisResult = await res.json()
+          if (data.status === 'complete' || data.status === 'failed') {
+            settled[id] = data
+            pendingRef.current.delete(id)
+          }
+        })
+      )
+
+      if (Object.keys(settled).length === 0) return
+
+      setBatch(prev => {
+        if (!prev) return prev
+        const newResults = { ...prev.results, ...settled }
+        const newComplete = prev.complete + Object.keys(settled).length
+
+        if (pendingRef.current.size === 0) {
+          clearInterval(pollRef.current!)
+          const corr = computeCorrelations(newResults, videoMap)
+          setCorrelations(corr)
+          setAnalyzing(false)
+          refreshUsage(tok)
+        }
+
+        return { ...prev, results: newResults, complete: newComplete }
+      })
     }, 3000)
   }
 
-  // ── Upload handler ────────────────────────────────────────────────────────
-  async function handleUpload(file: File) {
+  // ── Channel submit ────────────────────────────────────────────────────────
+
+  async function handleChannel(handle: string) {
     if (!token) return
     setAnalyzing(true)
-    setResult(null)
-    setError(null)
-    setLimitError(null)
-
-    const form = new FormData()
-    form.append('image', file)
-
-    const res = await fetch('/api/analyze/thumbnail', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    })
-
-    if (res.status === 429) {
-      setLimitError(await res.json())
-      setAnalyzing(false)
-      return
-    }
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      setError(data.error ?? 'Analysis failed. Please try again.')
-      setAnalyzing(false)
-      return
-    }
-
-    const { analysis_id } = await res.json()
-    startPolling(analysis_id, token)
-  }
-
-  // ── Channel handler ───────────────────────────────────────────────────────
-  async function handleChannel(handle: string, count: number) {
-    if (!token) return
-    setAnalyzing(true)
-    setResult(null)
+    setBatch(null)
+    setCorrelations(null)
     setError(null)
     setLimitError(null)
 
     const res = await fetch('/api/analyze/channel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ channel_handle: handle, thumbnail_count: count }),
+      body: JSON.stringify({ channel_handle: handle }),
     })
 
     if (res.status === 429) {
@@ -145,18 +222,22 @@ export default function DashboardPage() {
       return
     }
 
-    const { analysis_ids } = await res.json()
-    // Poll on the first analysis ID for live feedback
-    if (analysis_ids?.[0]) startPolling(analysis_ids[0], token)
-    else setAnalyzing(false)
+    const { analysis_ids, video_map } = await res.json()
+    if (!analysis_ids?.length) {
+      setError('No videos could be queued for analysis.')
+      setAnalyzing(false)
+      return
+    }
+
+    startBatchPoll(analysis_ids, video_map, handle, token)
   }
 
   async function handleSignOut() {
+    if (pollRef.current) clearInterval(pollRef.current)
     await supabase.auth.signOut()
     router.push('/auth/login')
   }
 
-  // ── Loading state ─────────────────────────────────────────────────────────
   if (consentDone === null) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -173,7 +254,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <span className="text-lg font-bold text-indigo-400">Brainiac</span>
           <span className="text-xs text-gray-600 hidden sm:block">
-            Brain encoding model for creative analysis
+            Brain activation model for creative analysis
           </span>
         </div>
         <div className="flex items-center gap-6">
@@ -188,24 +269,8 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-10 space-y-8">
-        <div className="flex gap-1 p-1 bg-gray-900 rounded-lg w-fit border border-gray-800">
-          {(['upload', 'channel'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors
-                ${tab === t ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
-            >
-              {t === 'upload' ? 'Upload Image' : 'YouTube Channel'}
-            </button>
-          ))}
-        </div>
-
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-          {tab === 'upload'
-            ? <UploadZone onFile={handleUpload} disabled={analyzing} />
-            : <ChannelInput onSubmit={handleChannel} disabled={analyzing} />
-          }
+          <ChannelInput onSubmit={handleChannel} disabled={analyzing} />
         </div>
 
         {limitError && (
@@ -226,31 +291,43 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {analyzing && <LoadingBrain />}
-
-        {result && result.status === 'complete' && (
-          <div className="space-y-6 bg-gray-900 rounded-xl border border-gray-800 p-6">
-            {result.heatmap_url && <HeatmapPanel heatmapUrl={result.heatmap_url} />}
-            {result.roi_data && result.roi_data.length > 0 && (
-              <ROIBarChart roiData={result.roi_data} />
-            )}
-            {result.mean_top_roi_score !== null && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <span>Mean top ROI score:</span>
-                <span className="font-mono text-white">
-                  {result.mean_top_roi_score.toFixed(3)}
-                </span>
+        {analyzing && batch && (
+          <div className="space-y-4">
+            <LoadingBrain />
+            <div className="text-center space-y-2">
+              <p className="text-sm text-gray-400">
+                Analyzing thumbnails — {batch.complete} / {batch.total} complete
+              </p>
+              <div className="w-full bg-gray-800 rounded-full h-1.5 max-w-xs mx-auto">
+                <div
+                  className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: `${(batch.complete / batch.total) * 100}%` }}
+                />
               </div>
-            )}
-            <AttributionFooter />
+            </div>
           </div>
         )}
 
-        {result && result.status === 'failed' && (
-          <div className="bg-red-950/30 border border-red-800/50 rounded-xl px-5 py-4">
-            <p className="text-red-400 text-sm">
-              Analysis failed: {result.error_message ?? 'Unknown error. Please try again.'}
-            </p>
+        {analyzing && !batch && <LoadingBrain />}
+
+        {correlations !== null && batch && (
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            {correlations.length === 0 ? (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-400">
+                  Not enough data to compute correlations. At least 5 videos need a completed
+                  analysis and a view count. Try a channel with more public videos, or add a
+                  YouTube Data API key for view count enrichment.
+                </p>
+                <AttributionFooter />
+              </div>
+            ) : (
+              <CorrelationResults
+                correlations={correlations}
+                channelHandle={batch.channelHandle}
+                videoCount={batch.complete}
+              />
+            )}
           </div>
         )}
       </main>
