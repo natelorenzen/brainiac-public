@@ -7,7 +7,7 @@ import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
 import { fetchChannelThumbnails } from '@/lib/youtube'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -91,9 +91,10 @@ export async function POST(req: NextRequest) {
 
   const analysisIds: string[] = []
   const videoMap: Record<string, { video_id: string; title: string; view_count: number | null; thumbnail_url: string }> = {}
+  let firstError: string | null = null
 
   for (const thumb of thumbnails) {
-    const { data: analysis } = await supabaseServer
+    const { data: analysis, error: insertError } = await supabaseServer
       .from('analyses')
       .insert({
         user_id: user.id,
@@ -104,12 +105,16 @@ export async function POST(req: NextRequest) {
       .select('id')
       .single()
 
-    if (!analysis) continue
+    if (!analysis) {
+      firstError ??= `Database insert failed: ${insertError?.message ?? 'unknown'}`
+      continue
+    }
 
     let storageKey: string
     try {
       storageKey = await uploadCreative(thumb.thumbnail_bytes, analysis.id, 'image/jpeg')
-    } catch {
+    } catch (err) {
+      firstError ??= `Storage upload failed: ${String(err)}`
       await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
       continue
     }
@@ -132,9 +137,17 @@ export async function POST(req: NextRequest) {
         view_count: thumb.view_count,
         thumbnail_url: thumb.thumbnail_url,
       }
-    } catch {
+    } catch (err) {
+      firstError ??= `Inference dispatch failed: ${String(err)}`
       await supabaseServer.from('analyses').update({ status: 'failed' }).eq('id', analysis.id)
     }
+  }
+
+  if (analysisIds.length === 0) {
+    return NextResponse.json(
+      { error: firstError ?? 'All jobs failed to queue.' },
+      { status: 500 }
+    )
   }
 
   if (analysisIds.length > 0) {
