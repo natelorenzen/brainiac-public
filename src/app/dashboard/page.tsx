@@ -235,8 +235,8 @@ export default function DashboardPage() {
     }
 
     const { analysis_ids, video_map, queued } = await res.json()
-    if (queued > 0 && queued < 15) {
-      setQuotaWarning(`Only ${queued} of 15 videos queued — daily or monthly limit reached for the rest.`)
+    if (queued > 0 && queued < 25) {
+      setQuotaWarning(`Only ${queued} of 25 videos queued — daily or monthly usage limit reached for the rest.`)
     }
     if (!analysis_ids?.length) {
       setError('No videos could be queued for analysis.')
