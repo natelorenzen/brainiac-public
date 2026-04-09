@@ -91,6 +91,7 @@ export default function DashboardPage() {
   const [batchDiag, setBatchDiag] = useState<{ completed: number; failed: number; noViewCount: number } | null>(null)
   const [limitError, setLimitError] = useState<LimitError | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [quotaWarning, setQuotaWarning] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pendingRef = useRef<Set<string>>(new Set())
   const [mounted, setMounted] = useState(false)
@@ -213,6 +214,7 @@ export default function DashboardPage() {
     setCorrelations(null)
     setError(null)
     setLimitError(null)
+    setQuotaWarning(null)
 
     const res = await fetch('/api/analyze/channel', {
       method: 'POST',
@@ -232,7 +234,10 @@ export default function DashboardPage() {
       return
     }
 
-    const { analysis_ids, video_map } = await res.json()
+    const { analysis_ids, video_map, queued } = await res.json()
+    if (queued > 0 && queued < 15) {
+      setQuotaWarning(`Only ${queued} of 15 videos queued — daily or monthly limit reached for the rest.`)
+    }
     if (!analysis_ids?.length) {
       setError('No videos could be queued for analysis.')
       setAnalyzing(false)
@@ -296,6 +301,14 @@ export default function DashboardPage() {
                 Resets: {new Date(limitError.resets_at).toLocaleString()}
               </p>
             )}
+          </div>
+        )}
+
+        {quotaWarning && (
+          <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl px-5 py-4 text-sm">
+            <p className="text-amber-400 font-medium mb-1">Quota warning</p>
+            <p className="text-amber-200/70">{quotaWarning}</p>
+            <p className="text-amber-200/50 text-xs mt-1">Reset your quota in Supabase: <code className="bg-black/30 px-1 rounded">UPDATE profiles SET daily_count = 0, monthly_count = 0 WHERE email = &apos;you@example.com&apos;;</code></p>
           </div>
         )}
 
