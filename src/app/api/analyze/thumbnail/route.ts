@@ -6,7 +6,7 @@ import { uploadCreative } from '@/lib/storage'
 import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 30
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   // Auth
@@ -94,8 +94,9 @@ export async function POST(req: NextRequest) {
   try {
     storageKey = await uploadCreative(imageBuffer, analysis.id, mimeType)
   } catch (err) {
-    await supabaseServer.from('analyses').update({ status: 'failed', error_message: String(err) }).eq('id', analysis.id)
-    return NextResponse.json({ error: 'Image storage failed' }, { status: 500 })
+    const msg = String(err)
+    await supabaseServer.from('analyses').update({ status: 'failed', error_message: msg }).eq('id', analysis.id)
+    return NextResponse.json({ error: `Image storage failed: ${msg}` }, { status: 500 })
   }
 
   // Save storage key

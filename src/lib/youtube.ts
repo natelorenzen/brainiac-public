@@ -38,22 +38,49 @@ export async function fetchChannelThumbnails(
 }
 
 async function resolveChannelId(handle: string): Promise<string> {
-  // If it looks like a raw channel ID already (starts with UC, 24 chars), use it directly.
-  const cleaned = handle.replace(/^@/, '')
+  const cleaned = handle.replace(/^@/, '').trim()
+
+  // Already a raw channel ID (UC + 22 chars)
   if (/^UC[\w-]{22}$/.test(cleaned)) return cleaned
 
-  // Use YouTube oembed API — works server-side without an API key or cookie.
-  // Returns JSON with author_url like "https://www.youtube.com/channel/UCxxxxxx"
-  const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/@${cleaned}`)}&format=json`
-  const res = await fetch(oembed, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Brainiac/1.0)' },
-  })
-  if (!res.ok) throw new Error(`Could not resolve YouTube channel @${cleaned}: ${res.status}`)
+  const UA = 'Mozilla/5.0 (compatible; Brainiac/1.0)'
 
-  const data = await res.json() as { author_url?: string }
-  const match = data.author_url?.match(/channel\/(UC[\w-]{22})/)
-  if (!match) throw new Error(`Could not extract channel ID for @${cleaned}`)
-  return match[1]
+  // Strategy 1: RSS ?user= endpoint — free, no API key, works for most channels
+  // that have a legacy username (which includes nearly all large channels).
+  // The feed XML contains <yt:channelId> even on a 404-free channel page.
+  try {
+    const rssRes = await fetch(
+      `https://www.youtube.com/feeds/videos.xml?user=${encodeURIComponent(cleaned)}`,
+      { headers: { 'User-Agent': UA } }
+    )
+    if (rssRes.ok) {
+      const xml = await rssRes.text()
+      const m = xml.match(/<yt:channelId>(UC[\w-]{22})<\/yt:channelId>/)
+      if (m) return m[1]
+    }
+  } catch { /* fall through */ }
+
+  // Strategy 2: YouTube Data API v3 (requires YOUTUBE_DATA_API_KEY env var)
+  const apiKey = process.env.YOUTUBE_DATA_API_KEY
+  if (apiKey) {
+    try {
+      const apiRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent('@' + cleaned)}&key=${apiKey}`,
+        { headers: { 'User-Agent': UA } }
+      )
+      if (apiRes.ok) {
+        const data = await apiRes.json() as { items?: { id: string }[] }
+        const id = data.items?.[0]?.id
+        if (id) return id
+      }
+    } catch { /* fall through */ }
+  }
+
+  throw new Error(
+    `Could not resolve YouTube channel "@${cleaned}". ` +
+    `Try entering the channel ID directly (e.g. UCgoFStVyEsm8tBZP5NC-aBQ). ` +
+    `You can find it at youtube.com/@${cleaned}/about.`
+  )
 }
 
 function parseYouTubeFeed(xml: string, count: number): YTVideoMeta[] {
