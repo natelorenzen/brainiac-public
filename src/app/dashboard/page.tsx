@@ -31,7 +31,7 @@ function pearson(x: number[], y: number[]): number {
 function computeCorrelations(
   results: Record<string, AnalysisResult>,
   videoMap: Record<string, VideoMeta>
-): CorrelationEntry[] {
+): CorrelationEntry[] | null {
   const pairs = Object.entries(results)
     .filter(([id, r]) =>
       r.status === 'complete' &&
