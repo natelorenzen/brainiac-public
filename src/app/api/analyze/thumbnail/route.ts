@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       .from('analyses')
       .update({ status: 'failed', error_message: String(err) })
       .eq('id', analysis.id)
-    return NextResponse.json({ error: 'Inference dispatch failed' }, { status: 500 })
+    return NextResponse.json({ error: `Inference dispatch failed: ${String(err)}` }, { status: 500 })
   }
 
   // Increment usage
