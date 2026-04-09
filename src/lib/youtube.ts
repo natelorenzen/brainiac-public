@@ -115,22 +115,10 @@ async function resolveChannelId(handle: string): Promise<string> {
   if (/^UC[\w-]{22}$/.test(cleaned)) return cleaned
 
   const UA = 'Mozilla/5.0 (compatible; Brainiac/1.0)'
-
-  // Strategy 1: RSS ?user= (legacy usernames, no API key needed)
-  try {
-    const rssRes = await fetch(
-      `https://www.youtube.com/feeds/videos.xml?user=${encodeURIComponent(cleaned)}`,
-      { headers: { 'User-Agent': UA } }
-    )
-    if (rssRes.ok) {
-      const xml = await rssRes.text()
-      const m = xml.match(/<yt:channelId>(UC[\w-]{22})<\/yt:channelId>/)
-      if (m) return m[1]
-    }
-  } catch { /* fall through */ }
-
-  // Strategy 2: YouTube Data API v3 forHandle lookup
   const apiKey = process.env.YOUTUBE_DATA_API_KEY
+
+  // Strategy 1: YouTube Data API forHandle (preferred — authoritative for @handles)
+  // Must run before RSS ?user= which can match unrelated legacy usernames.
   if (apiKey) {
     try {
       const apiRes = await fetch(
@@ -144,6 +132,19 @@ async function resolveChannelId(handle: string): Promise<string> {
       }
     } catch { /* fall through */ }
   }
+
+  // Strategy 2: RSS ?user= (legacy usernames, no API key needed)
+  try {
+    const rssRes = await fetch(
+      `https://www.youtube.com/feeds/videos.xml?user=${encodeURIComponent(cleaned)}`,
+      { headers: { 'User-Agent': UA } }
+    )
+    if (rssRes.ok) {
+      const xml = await rssRes.text()
+      const m = xml.match(/<yt:channelId>(UC[\w-]{22})<\/yt:channelId>/)
+      if (m) return m[1]
+    }
+  } catch { /* fall through */ }
 
   throw new Error(
     `Could not resolve YouTube channel "@${cleaned}". ` +
