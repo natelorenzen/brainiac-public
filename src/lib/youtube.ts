@@ -42,15 +42,16 @@ async function resolveChannelId(handle: string): Promise<string> {
   const cleaned = handle.replace(/^@/, '')
   if (/^UC[\w-]{22}$/.test(cleaned)) return cleaned
 
-  // Fetch the channel page and extract the canonical channel ID from the RSS link
-  const url = `https://www.youtube.com/@${cleaned}`
-  const res = await fetch(url, {
+  // Use YouTube oembed API — works server-side without an API key or cookie.
+  // Returns JSON with author_url like "https://www.youtube.com/channel/UCxxxxxx"
+  const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/@${cleaned}`)}&format=json`
+  const res = await fetch(oembed, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Brainiac/1.0)' },
   })
-  if (!res.ok) throw new Error(`Could not fetch YouTube channel page: ${res.status}`)
+  if (!res.ok) throw new Error(`Could not resolve YouTube channel @${cleaned}: ${res.status}`)
 
-  const html = await res.text()
-  const match = html.match(/"channelId":"(UC[\w-]{22})"/)
+  const data = await res.json() as { author_url?: string }
+  const match = data.author_url?.match(/channel\/(UC[\w-]{22})/)
   if (!match) throw new Error(`Could not extract channel ID for @${cleaned}`)
   return match[1]
 }

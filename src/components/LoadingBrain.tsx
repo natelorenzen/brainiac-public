@@ -16,7 +16,7 @@ export function LoadingBrain({ message = 'Running brain encoding model…' }: Pr
         </div>
       </div>
       <p className="text-sm text-gray-400 animate-pulse">{message}</p>
-      <p className="text-xs text-gray-600">This takes 15–30 seconds. Poll every 3 seconds.</p>
+      <p className="text-xs text-gray-600">This may take up to 30 seconds.</p>
     </div>
   )
 }
