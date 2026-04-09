@@ -1,28 +1,26 @@
 // NOTE: In Next.js 16 this file is proxy.ts, NOT middleware.ts
 // Export is `proxy`, not `middleware`
+//
+// Auth is handled client-side via supabase.auth.getSession() in each protected page.
+// Supabase v2 stores sessions in localStorage (not cookies), so cookie-based
+// interception here is not reliable. Protected pages redirect to /auth/login
+// themselves if no session is found.
+
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const PROTECTED = ['/dashboard', '/account']
 const AUTH_PAGES = ['/auth/login', '/auth/signup']
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Read Supabase session cookie (set by @supabase/auth-helpers-nextjs)
+  // Redirect logged-in users away from auth pages
+  // (best-effort via cookie — may not always fire since session is in localStorage)
   const token =
     req.cookies.get('sb-access-token')?.value ||
     req.cookies.get(`sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]}-auth-token`)?.value
-  const isAuthed = !!token
 
-  if (PROTECTED.some(p => pathname.startsWith(p)) && !isAuthed) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/auth/login'
-    url.searchParams.set('redirect', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  if (AUTH_PAGES.some(p => pathname.startsWith(p)) && isAuthed) {
+  if (AUTH_PAGES.some(p => pathname.startsWith(p)) && token) {
     return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 
