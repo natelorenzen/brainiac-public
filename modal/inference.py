@@ -352,7 +352,7 @@ def generate_heatmap(image_bytes: bytes, roi_data: list[dict]) -> bytes:
 @app.cls(
     image=image,
     volumes={"/cache": model_volume},
-    timeout=300,
+    timeout=600,
     gpu="T4",
     secrets=[
         modal.Secret.from_name("brainiac-supabase"),
@@ -437,7 +437,9 @@ class BrainiacInference:
             with open(vid_path, "wb") as f:
                 f.write(video_bytes)
 
-            # Trim to 60s if longer (safety check)
+            # Trim to 60s if longer, then strip audio so Whisper never runs.
+            # TRIBE's audio/text extractors add 4+ minutes of latency on videos
+            # with audio. For visual-only brain activation we don't need them.
             try:
                 probe = subprocess.run(
                     ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -445,17 +447,21 @@ class BrainiacInference:
                     capture_output=True, text=True
                 )
                 duration = float(probe.stdout.strip() or "0")
+                trim_flag = ["-t", "60"] if duration > 60 else []
                 if duration > 60:
-                    trimmed_path = os.path.join(tmp_dir, "trimmed.mp4")
-                    subprocess.run(
-                        ["ffmpeg", "-y", "-i", vid_path, "-t", "60",
-                         "-c", "copy", trimmed_path],
-                        check=True, capture_output=True
-                    )
-                    vid_path = trimmed_path
-                    print(f"Trimmed video from {duration:.1f}s to 60s")
+                    print(f"Trimming video from {duration:.1f}s to 60s")
+
+                # -an strips audio track — prevents Whisper transcription
+                silent_path = os.path.join(tmp_dir, "silent.mp4")
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", vid_path] + trim_flag +
+                    ["-an", "-c:v", "copy", silent_path],
+                    check=True, capture_output=True
+                )
+                vid_path = silent_path
+                print("Audio stripped — skipping Whisper transcription")
             except Exception as e:
-                print(f"ffprobe/trim warning (non-fatal): {e}")
+                print(f"ffmpeg prep warning (non-fatal): {e}")
 
             # Run TRIBE v2 on the real video
             if self.mock_mode:
