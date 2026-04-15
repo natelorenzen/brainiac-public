@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { supabaseServer } from '@/lib/supabase-server'
 import { checkUserLimits, checkGlobalBudget, incrementUsage } from '@/lib/usage'
 import { hasRequiredConsents } from '@/lib/consent'
@@ -7,8 +8,9 @@ import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-// Called after the client has already uploaded the video directly to Supabase Storage.
-// Receives storage_key, creates an analysis row, fires Modal with content_type: 'video'.
+// Called after the client uploads the video directly to Supabase Storage.
+// Returns analysis_id immediately after creating the DB row, then dispatches
+// Modal in the background via waitUntil — avoids Vercel timeout on long inference.
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -63,22 +65,24 @@ export async function POST(req: NextRequest) {
     .update({ status: 'processing' })
     .eq('id', analysis.id)
 
-  try {
-    await dispatchInferenceJob({
+  await incrementUsage(user.id, 1)
+
+  // Fire Modal AFTER sending the response — waitUntil keeps the function alive
+  // until the dispatch completes without blocking the client.
+  // Modal runs inference and updates Supabase directly when done.
+  waitUntil(
+    dispatchInferenceJob({
       analysis_id: analysis.id,
       storage_key: storageKey,
       supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
       content_type: 'video',
+    }).catch(async (err) => {
+      await supabaseServer
+        .from('analyses')
+        .update({ status: 'failed', error_message: String(err) })
+        .eq('id', analysis.id)
     })
-  } catch (err) {
-    await supabaseServer
-      .from('analyses')
-      .update({ status: 'failed', error_message: String(err) })
-      .eq('id', analysis.id)
-    return NextResponse.json({ error: `Modal dispatch failed: ${String(err)}` }, { status: 502 })
-  }
-
-  await incrementUsage(user.id, 1)
+  )
 
   return NextResponse.json({ analysis_id: analysis.id, attribution: ATTRIBUTION })
 }
