@@ -45,9 +45,11 @@ async function fetchVideosViaAPI(
   const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads
   if (!uploadsPlaylistId) throw new Error('Could not find uploads playlist for this channel')
 
-  // Step 2: get most recent video IDs from uploads playlist
+  // Step 2: fetch more than needed up-front so we have enough after filtering Shorts.
+  // Shorts are ≤ 60s — fetching 2× the requested count gives headroom.
+  const fetchCount = Math.min(count * 2, 50)
   const playlistRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${count}&key=${apiKey}`,
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${fetchCount}&key=${apiKey}`,
     { headers: { 'User-Agent': UA } }
   )
   if (!playlistRes.ok) throw new Error(`YouTube playlistItems API failed: ${playlistRes.status}`)
@@ -59,9 +61,9 @@ async function fetchVideosViaAPI(
 
   const videoIds = items.map(i => i.contentDetails.videoId).join(',')
 
-  // Step 3: batch-fetch statistics + snippet for all videos
+  // Step 3: batch-fetch statistics + snippet + contentDetails (for duration filtering)
   const statsRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${apiKey}`,
+    `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${videoIds}&key=${apiKey}`,
     { headers: { 'User-Agent': UA } }
   )
   if (!statsRes.ok) throw new Error(`YouTube videos API failed: ${statsRes.status}`)
@@ -70,16 +72,34 @@ async function fetchVideosViaAPI(
       id: string
       snippet: { title: string; publishedAt: string }
       statistics: { viewCount?: string }
+      contentDetails: { duration: string }
     }[]
   }
 
-  return (statsData.items ?? []).map(item => ({
-    video_id: item.id,
-    title: item.snippet.title,
-    published: item.snippet.publishedAt,
-    view_count: item.statistics.viewCount ? parseInt(item.statistics.viewCount, 10) : null,
-    thumbnail_url: `https://img.youtube.com/vi/${item.id}/hqdefault.jpg`,
-  }))
+  return (statsData.items ?? [])
+    .filter(item => !isShort(item.contentDetails.duration))
+    .slice(0, count)
+    .map(item => ({
+      video_id: item.id,
+      title: item.snippet.title,
+      published: item.snippet.publishedAt,
+      view_count: item.statistics.viewCount ? parseInt(item.statistics.viewCount, 10) : null,
+      thumbnail_url: `https://img.youtube.com/vi/${item.id}/hqdefault.jpg`,
+    }))
+}
+
+// ── Shorts filter ────────────────────────────────────────────────────────────
+// YouTube Shorts are ≤ 60 seconds. Duration is ISO 8601: PT#H#M#S.
+// Examples: PT45S (45s Short), PT1M30S (90s video), PT10M (10 min video).
+
+function isShort(isoDuration: string): boolean {
+  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!match) return false
+  const hours   = parseInt(match[1] ?? '0', 10)
+  const minutes = parseInt(match[2] ?? '0', 10)
+  const seconds = parseInt(match[3] ?? '0', 10)
+  const totalSeconds = hours * 3600 + minutes * 60 + seconds
+  return totalSeconds <= 60
 }
 
 // ── RSS fallback (no API key) ─────────────────────────────────────────────────
