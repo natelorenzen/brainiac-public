@@ -13,13 +13,13 @@ on Modal GPU workers, then correlates each brain region's activation score again
 video's actual view count — showing which visual signals statistically track with
 performance on that specific channel.
 
-**Current inference mode: MOCK_MODE = True** — the Modal worker uses image-statistics-based
-proxy scores until real TRIBE v2 weights/package are integrated. See `TRIBE_V2_PLAN.md`.
+**Current inference mode: REAL — MOCK_MODE = False** in the `brainiac-hf` Modal secret.
+Real TRIBE v2 weights loaded from HuggingFace, cached in the `brainiac-tribe-weights` Modal volume.
 
 **No revenue is generated. No performance claims are made. CC-BY-NC-4.0 until a commercial
 license is obtained from Meta FAIR.**
 
-**Live URL:** https://[domain].com
+**Live URL:** https://brainiac-ivory.vercel.app
 **GitHub:** https://github.com/natelorenzen/brainiac
 **Operator:** Literally Anything LLC
 
@@ -31,8 +31,8 @@ license is obtained from Meta FAIR.**
 |-------|-----------|
 | Framework | Next.js 16.2.1 (App Router) |
 | Database & Auth | Supabase (Postgres + RLS + auth.users) |
-| Storage | Supabase Storage (buckets: `creatives`, `heatmaps`) |
-| GPU Inference | Modal (Python workers — `modal/inference.py`) |
+| Storage | Supabase Storage (bucket: `heatmaps` only — thumbnails now fetched directly from YouTube by Modal) |
+| GPU Inference | Modal (Python workers — `modal/inference.py`, T4 GPU, `@app.cls` pattern) |
 | Hosting | Vercel |
 | Styling | Tailwind CSS v4 |
 | Charts | Recharts |
@@ -54,7 +54,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=          # server-only, never expose client-side
 
-MODAL_INFERENCE_URL=                # Web endpoint URL after `modal deploy modal/inference.py`
+MODAL_INFERENCE_URL=https://natelorenzen--brainiac-inference.modal.run
 
 ENCRYPTION_KEY=                     # 64-char hex (openssl rand -hex 32)
 
@@ -66,9 +66,20 @@ YOUTUBE_DATA_API_KEY=               # Required — channel resolution + video li
 
 NEXT_PUBLIC_APP_URL=
 MONTHLY_BUDGET_CAP_USD=300.0
-COST_PER_ANALYSIS_USD=0.01
+COST_PER_ANALYSIS_USD=0.03          # Updated: real TRIBE v2 inference ~$0.03/thumbnail on T4
 CURRENT_LEGAL_VERSION=1.0.0
 ```
+
+### Modal Secrets
+
+Two secrets required in Modal dashboard:
+
+**`brainiac-supabase`**
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+**`brainiac-hf`**
+- `HF_TOKEN` — HuggingFace read token (requires LLaMA 3.2-3B access approval from Meta)
+- `MOCK_MODE` — set to `true` to use image-statistics fallback, `false` for real TRIBE v2
 
 ---
 
@@ -154,20 +165,24 @@ User enters @channelhandle
   → YouTube Data API: resolves handle → channel ID (forHandle, preferred)
   → YouTube Data API: uploads playlist → 25 most recent video IDs
   → YouTube Data API: batch statistics → view counts for all 25
-  → For each video: fetch thumbnail bytes (maxresdefault → hqdefault → mqdefault)
   → Next.js API validates auth + consent + usage caps
-  → For each thumbnail:
-      → Supabase: insert analyses row (status: queued)
-      → Supabase Storage: upload thumbnail to `creatives` bucket
-      → POST to Modal web endpoint (fire and forget)
-      → analyses row updated (status: processing)
+  → All 25 thumbnails processed in parallel:
+      → Supabase: insert analyses row (status: queued → processing)
+      → POST to Modal web endpoint with { analysis_id, thumbnail_url }
+        (fire and forget — Modal endpoint returns immediately)
   → API returns { analysis_ids[], video_map{} } to client
 
-Modal worker (currently MOCK_MODE, T4 GPU when real):
-  → Downloads image from Supabase Storage
-  → MOCK: derives ROI scores from image statistics (contrast, color, etc.)
-  → REAL (future): runs TRIBE v2 inference → vertex activation map → ROI scores
-  → Generates viridis heatmap overlay
+Modal worker (real TRIBE v2, T4 GPU):
+  → Downloads thumbnail directly from YouTube CDN URL
+  → Converts static JPEG → 4-second looping MP4 (via ffmpeg)
+  → Runs TRIBE v2 inference (video-only mode, no audio/text for thumbnails):
+      → V-JEPA2 encodes video frames
+      → Predicts fMRI vertex activations: shape (4, 20484) on fsaverage5 mesh
+      → Averages across timesteps → (20484,) vertex activation vector
+  → Extracts ROI scores using Destrieux atlas vertex mapping:
+      → 10 ROI keys → fsaverage5 vertex indices (built at container startup)
+      → Normalizes to [0, 1]
+  → Generates viridis heatmap overlay using spatial priors
   → Uploads heatmap to Supabase Storage (bucket: heatmaps)
   → Updates analyses row (status: complete, roi_data, heatmap_url)
 
@@ -177,13 +192,36 @@ Client polls all 25 analysis IDs every 3s (parallel)
   → Renders ranked correlation table + scatter chart for top region
 ```
 
+### Key architecture decisions
+- **No thumbnail storage**: thumbnails are never stored in Supabase. Modal downloads
+  directly from YouTube CDN. Only heatmaps (outputs) are stored.
+- **Fire and forget**: Modal endpoint returns `{status: queued}` immediately via
+  background thread. Next.js route completes in ~5s for 25 thumbnails.
+- **Model loaded once**: `@app.cls` + `@modal.enter()` loads TribeModel and ROI vertex
+  map once per container cold start. Warm containers reuse across requests.
+- **ROI vertex map**: Destrieux 2009 atlas on fsaverage5. Built at startup, hardcoded
+  mapping of 10 ROI keys → cortical vertex indices.
+
+---
+
+## TRIBE v2 Model Details
+
+- **Source**: `github.com/facebookresearch/tribev2`, installed via `pip install git+...`
+- **Weights**: `facebook/tribev2` on HuggingFace, cached in `brainiac-tribe-weights` Modal volume
+- **Input**: MP4 video (we create a 4-second static loop from each thumbnail via ffmpeg)
+- **Output**: `(n_timesteps, 20484)` — vertex activations on fsaverage5 cortical mesh
+- **ROI mapping**: Destrieux atlas → 10 functional regions (FFA, V1_V2, V4, LO, PPA, STS, DAN, VWFA, DMN, AV_ASSOC)
+- **Inference time**: ~2 minutes per thumbnail on T4 GPU
+- **Modal GPU limit**: 10 concurrent containers (Starter plan) — 25 thumbnails queue in batches of 10
+- **Known issue**: PPA (Scene Recognition) scores 0 across all thumbnails — likely a vertex mapping gap in the Destrieux atlas for parahippocampal cortex. Non-blocking.
+
 ---
 
 ## Usage Cap Logic
 
 Hard limits enforced **before** any job is queued:
 - **Currently: 10,000/day and 10,000/month** (caps raised for development/testing)
-- $300/month global GPU budget (~30,000 analyses at $0.01 each)
+- $300/month global GPU budget
 - Batch channel analyses count as N against both caps
 - Reset manually: `UPDATE profiles SET daily_count = 0, monthly_count = 0 WHERE email = '...';`
 
@@ -196,17 +234,15 @@ Hard limits enforced **before** any job is queued:
 ## Modal Worker
 
 ```bash
-# Initial setup
-pip install modal
-modal token new
-
-# Create secret in Modal dashboard: "brainiac-supabase"
-#   SUPABASE_SERVICE_ROLE_KEY = <your key>
-
 # Deploy
 modal deploy modal/inference.py
 
-# Copy web endpoint URL → MODAL_INFERENCE_URL env var
+# Secrets required (Modal dashboard):
+#   brainiac-supabase: SUPABASE_SERVICE_ROLE_KEY
+#   brainiac-hf: HF_TOKEN, MOCK_MODE
+
+# Endpoint URL (already set in Vercel):
+#   https://natelorenzen--brainiac-inference.modal.run
 ```
 
 ---
@@ -230,10 +266,8 @@ modal deploy modal/inference.py
 
 | Bucket | Access | Contents |
 |--------|--------|----------|
-| `creatives` | Private (service role only) | Uploaded images, downloaded ad creatives |
+| `creatives` | Private | Unused for channel batch (kept for single thumbnail upload flow) |
 | `heatmaps` | Public | Viridis overlay PNGs generated by Modal |
-
-Create both buckets in the Supabase dashboard before first use.
 
 ---
 
@@ -245,6 +279,7 @@ Create both buckets in the Supabase dashboard before first use.
 - Always `await` Supabase mutations
 - Tailwind v4: use explicit color classes only
 - OAuth tokens encrypted with AES-256-GCM before storage
+- Commit directly to main — no feature branches or PRs
 
 ---
 
@@ -257,10 +292,10 @@ Create both buckets in the Supabase dashboard before first use.
 | `src/lib/usage.ts` | Cap enforcement (daily/monthly/budget) |
 | `src/lib/consent.ts` | Consent recording and checking |
 | `src/lib/roi.ts` | ROI registry and activation extraction |
-| `src/lib/inference.ts` | Modal web endpoint caller |
+| `src/lib/inference.ts` | Modal web endpoint caller (passes thumbnail_url, not storage_key) |
 | `src/lib/encryption.ts` | AES-256-GCM for OAuth tokens |
 | `src/lib/meta-ads.ts` | Meta Graph API + OAuth state tokens |
-| `src/lib/youtube.ts` | YouTube Data API + RSS fallback (channel resolution, video list, view counts, thumbnail bytes) |
+| `src/lib/youtube.ts` | YouTube Data API + RSS fallback (channel resolution, video list, view counts) |
 | `src/lib/aggregate.ts` | Anonymized signal writer |
 | `src/lib/storage.ts` | Supabase Storage wrapper |
 | `src/proxy.ts` | Auth middleware |
@@ -268,7 +303,7 @@ Create both buckets in the Supabase dashboard before first use.
 | `src/components/AttributionFooter.tsx` | Required CC-BY-NC-4.0 attribution |
 | `src/components/CorrelationResults.tsx` | Ranked ROI correlation table + scatter chart |
 | `src/components/ChannelInput.tsx` | YouTube channel handle input |
-| `modal/inference.py` | Python GPU worker (TRIBE v2) |
+| `modal/inference.py` | Python GPU worker (real TRIBE v2, @app.cls pattern) |
 | `COMMERCIAL_USE_BLOCKED.md` | License enforcement notice |
 | `supabase/migrations/001_initial.sql` | profiles, RLS, handle_new_user trigger |
 | `supabase/migrations/002_brainiac_schema.sql` | All brainiac tables |
@@ -284,8 +319,6 @@ Create both buckets in the Supabase dashboard before first use.
 | 002_brainiac_schema.sql | user_consents, analyses, monthly_budget, connected_accounts, ad_creatives, creative_performance, aggregate_signals, deletion_log |
 | 003_rpc_functions.sql | increment_usage_counts(), increment_budget() RPCs |
 
-Apply in Supabase dashboard → SQL editor in order.
-
 ---
 
 ## What's Been Built
@@ -298,31 +331,36 @@ Apply in Supabase dashboard → SQL editor in order.
 - [x] Auth pages (login, signup, reset, update-password)
 - [x] Consent gate (3 explicit checkboxes, versioned, IP-logged)
 - [x] Modal GPU worker deployed (`modal deploy modal/inference.py`)
-- [x] Modal secret `brainiac-supabase` configured with SUPABASE_SERVICE_ROLE_KEY
+- [x] Modal secrets configured (`brainiac-supabase`, `brainiac-hf`)
 - [x] All env vars set in Vercel (Supabase, Modal, YouTube, Encryption)
 - [x] Legal pages (terms, privacy — need lawyer review before public launch)
 - [x] COMMERCIAL_USE_BLOCKED.md
 
-### YouTube Correlation Analyzer (current focus)
-- [x] YouTube Data API integration — channel resolution (forHandle preferred), video list via uploads playlist, batch view count fetch
+### YouTube Correlation Analyzer
+- [x] YouTube Data API integration — channel resolution, video list, batch view count fetch
 - [x] RSS fallback for channels without API key (15-video limit)
-- [x] Channel analysis API route — fetches 25 thumbnails, dispatches to Modal, returns video_map
+- [x] Channel analysis API route — parallel dispatch of 25 jobs, returns in ~5s
 - [x] Batch polling — client polls all 25 analysis IDs in parallel with progress bar
-- [x] Pearson correlation engine — computes r per ROI vs log(view_count) across completed analyses
-- [x] CorrelationResults component — ranked table with directional bars + scatter chart for top region
+- [x] Pearson correlation engine — computes r per ROI vs log(view_count)
+- [x] CorrelationResults component — ranked table with directional bars + scatter chart
 - [x] Quota warning surfaced when batch is capped by usage limits
-- [x] Hydration mismatch fixed (mounted guard, server renders null for auth-gated page)
-- [x] Channel resolution bug fixed (API forHandle before RSS to avoid legacy username shadowing)
 
-### Modal Worker Status
-- [x] Deployed and reachable at MODAL_INFERENCE_URL
-- [x] Supabase Storage download + heatmap upload working
-- [x] Mock inference producing ROI scores from image statistics
-- [ ] **Real TRIBE v2 inference — see `TRIBE_V2_PLAN.md`**
+### Real TRIBE v2 Inference (completed)
+- [x] TRIBE v2 installed from GitHub in Modal image
+- [x] HuggingFace token + LLaMA 3.2-3B access configured
+- [x] ROI vertex map built from Destrieux atlas at container startup
+- [x] Thumbnail → 4-second MP4 conversion via ffmpeg
+- [x] Real fMRI vertex activations: (4, 20484) shape, 0% NaN
+- [x] ROI scores extracted and written to Supabase (all 25 completing successfully)
+- [x] Heatmaps generated and uploaded
+- [x] Fire-and-forget endpoint (returns immediately, inference runs in background thread)
+- [x] Modal downloads thumbnails directly from YouTube — no Supabase storage upload needed
 
 ### Pending Before Public Launch
-- [ ] Integrate real TRIBE v2 model (see `TRIBE_V2_PLAN.md`)
+- [ ] **Fix UI: site shows "channel analysis failed" due to 504 timeout on channel route** (parallel pipeline deployed, needs verification after latest Vercel build)
+- [ ] Fix PPA (Scene Recognition) scoring 0 — investigate Destrieux atlas vertex mapping
 - [ ] Restore production usage caps: `DAILY_LIMIT = 10`, `MONTHLY_LIMIT = 50` in `src/lib/usage.ts`
 - [ ] Lawyer review of Terms + Privacy pages
 - [ ] Remove debug fields from channel API response (`can_run`, `daily_count`, `loop_error`, etc.)
 - [ ] Set live domain in CLAUDE.md and Vercel
+- [ ] Slide deck PDF analyzer — each slide → TRIBE v2 → mental load score per slide (next feature)
