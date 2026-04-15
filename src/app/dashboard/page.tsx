@@ -340,6 +340,28 @@ export default function DashboardPage() {
                     onAnalysisStarted={(id) => setVideoAnalysisId(id)}
                   />
                 )}
+                {/* Dev shortcut: load last completed video analysis */}
+                {userId && (
+                  <div className="pt-2 border-t border-gray-800">
+                    <button
+                      onClick={async () => {
+                        const { data } = await supabase
+                          .from('analyses')
+                          .select('id')
+                          .eq('user_id', userId)
+                          .eq('type', 'ad_creative')
+                          .eq('status', 'complete')
+                          .order('created_at', { ascending: false })
+                          .limit(1)
+                          .single()
+                        if (data?.id) setVideoAnalysisId(data.id)
+                      }}
+                      className="text-xs text-gray-600 hover:text-gray-400 underline transition-colors"
+                    >
+                      Load last result
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <VideoReport
