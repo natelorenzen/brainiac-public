@@ -363,7 +363,8 @@ class BrainiacInference:
         import urllib.request
 
         analysis_id: str = body["analysis_id"]
-        thumbnail_url: str = body["thumbnail_url"]
+        thumbnail_url: str | None = body.get("thumbnail_url")
+        storage_key: str | None = body.get("storage_key")
         supabase_url: str = body["supabase_url"]
         service_role_key: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
@@ -376,16 +377,25 @@ class BrainiacInference:
             }).eq("id", analysis_id).execute()
             return {"status": "failed", "error": msg}
 
-        # ── Download thumbnail directly from YouTube ───────────────────────────
-        try:
-            req = urllib.request.Request(
-                thumbnail_url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Brainiac/1.0)"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                image_bytes = resp.read()
-        except Exception as e:
-            return fail(f"Thumbnail download failed: {e}")
+        # ── Download image (from YouTube URL or Supabase Storage) ─────────────
+        if thumbnail_url:
+            try:
+                req = urllib.request.Request(
+                    thumbnail_url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; Brainiac/1.0)"},
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    image_bytes = resp.read()
+            except Exception as e:
+                return fail(f"Thumbnail download failed: {e}")
+        elif storage_key:
+            try:
+                response = db.storage.from_("creatives").download(storage_key)
+                image_bytes = bytes(response)
+            except Exception as e:
+                return fail(f"Storage download failed: {e}")
+        else:
+            return fail("No thumbnail_url or storage_key provided")
 
         # ── Decode image ──────────────────────────────────────────────────────
         try:

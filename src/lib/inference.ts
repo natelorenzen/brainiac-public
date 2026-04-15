@@ -4,8 +4,10 @@
 
 export interface InferenceJobPayload {
   analysis_id: string
-  thumbnail_url: string      // public YouTube thumbnail URL — Modal downloads directly
   supabase_url: string
+  // Provide one of:
+  thumbnail_url?: string     // public YouTube thumbnail URL — Modal downloads directly
+  storage_key?: string       // key in 'creatives' bucket — for user-uploaded images
 }
 
 export async function dispatchInferenceJob(payload: InferenceJobPayload): Promise<void> {
