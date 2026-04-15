@@ -4,7 +4,7 @@ import { checkUserLimits, checkGlobalBudget, incrementUsage } from '@/lib/usage'
 import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 15
+export const maxDuration = 60
 
 // Dispatches a single thumbnail to Modal for inference.
 // Creates one analyses row, fires one Modal POST, increments usage by 1.
