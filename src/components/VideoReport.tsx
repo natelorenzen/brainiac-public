@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, type TooltipProps } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceArea, ResponsiveContainer, type TooltipProps } from 'recharts'
 import { HeatmapPanel } from '@/components/HeatmapPanel'
 import { ROIBarChart } from '@/components/ROIBarChart'
 import { AttributionFooter } from '@/components/AttributionFooter'
@@ -30,8 +30,55 @@ const ROI_COLORS: Record<string, string> = {
   AV_ASSOC: '#67e8f9',
 }
 
-function TemporalChart({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
-  // Show top 5 ROIs by average activation that have temporal data
+const ROI_EDIT_TIPS: Record<string, { what: string; fix: string }> = {
+  FFA:      { what: 'Face Detection',           fix: 'add face cam, talking head, or a person in frame' },
+  DAN:      { what: 'Spatial Attention',        fix: 'add motion — cut, zoom, B-roll, or on-screen animation' },
+  VWFA:     { what: 'Text Processing',          fix: 'add captions, a title card, or a text callout' },
+  V4:       { what: 'Color & Form',             fix: 'grade up saturation or add a high-contrast graphic overlay' },
+  LO:       { what: 'Object Recognition',       fix: 'show the product or key object more clearly' },
+  STS:      { what: 'Social & Motion Cues',     fix: 'add gestures, cutaways, or reaction shots' },
+  V1_V2:    { what: 'Low-Level Visual',         fix: 'increase visual sharpness or contrast' },
+  AV_ASSOC: { what: 'Audio-Visual Association', fix: 'sync cuts to audio beats or add sound effects on visual hits' },
+  DMN:      { what: 'Default Mode Network',     fix: 'reduce cognitive load — simplify the frame or slow the pace' },
+  PPA:      { what: 'Scene Recognition',        fix: 'establish location context with a wider shot' },
+}
+
+// ── Dip detection ─────────────────────────────────────────────────────────────
+
+interface DipResult { start: number; end: number; minVal: number }
+interface DipZone   { start: number; end: number; roiKey: string; color: string }
+
+function findDips(temporal: number[], threshold = 0.35, minLen = 2): DipResult[] {
+  const dips: DipResult[] = []
+  let inDip = false, dipStart = 0, dipMin = 1
+  for (let i = 0; i <= temporal.length; i++) {
+    const val = temporal[i]
+    if (val !== undefined && val < threshold) {
+      if (!inDip) { inDip = true; dipStart = i; dipMin = val }
+      else dipMin = Math.min(dipMin, val)
+    } else {
+      if (inDip && i - dipStart >= minLen) dips.push({ start: dipStart, end: i - 1, minVal: dipMin })
+      inDip = false
+    }
+  }
+  return dips
+}
+
+function computeDipZones(roiData: ROIRegionWithTemporal[]): DipZone[] {
+  const zones: DipZone[] = []
+  for (const key of ['FFA', 'DAN', 'VWFA']) {
+    const roi = roiData.find(r => r.region_key === key)
+    if (!roi?.temporal_activations?.length) continue
+    for (const dip of findDips(roi.temporal_activations)) {
+      zones.push({ start: dip.start, end: dip.end, roiKey: key, color: ROI_COLORS[key] ?? '#6b7280' })
+    }
+  }
+  return zones
+}
+
+// ── Temporal chart ────────────────────────────────────────────────────────────
+
+function TemporalChart({ roiData, dipZones }: { roiData: ROIRegionWithTemporal[]; dipZones: DipZone[] }) {
   const topRois = roiData
     .filter(r => r.temporal_activations && r.temporal_activations.length > 0)
     .slice(0, 5)
@@ -41,16 +88,18 @@ function TemporalChart({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
   const n = topRois[0].temporal_activations!.length
   const chartData = Array.from({ length: n }, (_, i) => {
     const point: Record<string, number> = { t: i }
-    for (const roi of topRois) {
-      point[roi.region_key] = roi.temporal_activations![i] ?? 0
-    }
+    for (const roi of topRois) point[roi.region_key] = roi.temporal_activations![i] ?? 0
     return point
   })
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-gray-300 mb-1">Brain Activation Over Time</h3>
-      <p className="text-xs text-gray-600 mb-3">Top 5 regions · per model timestep</p>
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <h3 className="text-sm font-medium text-gray-300">Brain Activation Over Time</h3>
+          <p className="text-xs text-gray-600 mt-0.5">Top 5 regions · shaded zones = engagement dips</p>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <XAxis
@@ -58,7 +107,6 @@ function TemporalChart({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
             tick={{ fill: '#6b7280', fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            label={{ value: 'timestep', position: 'insideBottomRight', offset: -4, fill: '#4b5563', fontSize: 10 }}
           />
           <YAxis
             domain={[0, 1]}
@@ -68,6 +116,19 @@ function TemporalChart({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
             width={28}
           />
           <Tooltip content={<TemporalTooltip rois={topRois} />} />
+          {/* Dip zone shading — drawn before lines so lines sit on top */}
+          {dipZones.map((zone, i) => (
+            <ReferenceArea
+              key={i}
+              x1={zone.start}
+              x2={zone.end}
+              fill={zone.color}
+              fillOpacity={0.08}
+              stroke={zone.color}
+              strokeOpacity={0.25}
+              strokeDasharray="3 3"
+            />
+          ))}
           {topRois.map(roi => (
             <Line
               key={roi.region_key}
@@ -113,148 +174,154 @@ function TemporalTooltip({ active, payload, label, rois }: TooltipProps<number, 
   )
 }
 
-// ── Editing guide ─────────────────────────────────────────────────────────────
+// ── Findings panel ────────────────────────────────────────────────────────────
 
-const ROI_EDIT_TIPS: Record<string, { what: string; fix: string }> = {
-  FFA:      { what: 'Face Detection', fix: 'add face cam, talking head, or a person in frame' },
-  DAN:      { what: 'Spatial Attention', fix: 'add motion — cut, zoom, B-roll, or on-screen animation' },
-  VWFA:     { what: 'Text Processing', fix: 'add captions, a title card, or a text callout' },
-  V4:       { what: 'Color & Form', fix: 'grade up saturation or add a high-contrast graphic overlay' },
-  LO:       { what: 'Object Recognition', fix: 'show the product or key object more clearly' },
-  STS:      { what: 'Social & Motion Cues', fix: 'add gestures, cutaways, or reaction shots' },
-  V1_V2:    { what: 'Low-Level Visual', fix: 'increase visual sharpness or contrast' },
-  AV_ASSOC: { what: 'Audio-Visual Association', fix: 'sync cuts to audio beats or add sound effects on visual hits' },
-  DMN:      { what: 'Default Mode Network', fix: 'reduce cognitive load — simplify the frame or slow the pace' },
-  PPA:      { what: 'Scene Recognition', fix: 'establish location context with a wider shot' },
+interface Finding {
+  roiKey?: string
+  status: 'ok' | 'warn' | 'info'
+  headline: string
+  detail: string
+  dips?: DipResult[]
 }
 
-interface DipResult { start: number; end: number; minVal: number }
-
-function findDips(temporal: number[], threshold = 0.35, minLen = 2): DipResult[] {
-  const dips: DipResult[] = []
-  let inDip = false, dipStart = 0, dipMin = 1
-  for (let i = 0; i <= temporal.length; i++) {
-    const val = temporal[i]
-    if (val !== undefined && val < threshold) {
-      if (!inDip) { inDip = true; dipStart = i; dipMin = val }
-      else dipMin = Math.min(dipMin, val)
-    } else {
-      if (inDip && i - dipStart >= minLen) dips.push({ start: dipStart, end: i - 1, minVal: dipMin })
-      inDip = false
-    }
-  }
-  return dips
-}
-
-interface ChecklistItem { label: string; status: 'ok' | 'warn' | 'info'; detail: string }
-
-function buildChecklist(roiData: ROIRegionWithTemporal[]): ChecklistItem[] {
+function buildFindings(roiData: ROIRegionWithTemporal[]): Finding[] {
   const byKey = Object.fromEntries(roiData.map(r => [r.region_key, r]))
-  const items: ChecklistItem[] = []
+  const findings: Finding[] = []
   const n = roiData[0]?.temporal_activations?.length ?? 0
 
-  // 1. Opening hook (first 20% of timesteps)
+  // Opening hook
   const hookEnd = Math.max(2, Math.round(n * 0.2))
-  const ffaOpening = byKey['FFA']?.temporal_activations?.slice(0, hookEnd) ?? []
-  const v4Opening  = byKey['V4']?.temporal_activations?.slice(0, hookEnd) ?? []
-  const ffaAvg = ffaOpening.length ? ffaOpening.reduce((a, b) => a + b, 0) / ffaOpening.length : null
-  const v4Avg  = v4Opening.length  ? v4Opening.reduce((a, b) => a + b, 0)  / v4Opening.length  : null
-
+  const ffaOpen = byKey['FFA']?.temporal_activations?.slice(0, hookEnd) ?? []
+  const v4Open  = byKey['V4']?.temporal_activations?.slice(0, hookEnd) ?? []
+  const ffaAvg  = ffaOpen.length ? ffaOpen.reduce((a, b) => a + b, 0) / ffaOpen.length : null
+  const v4Avg   = v4Open.length  ? v4Open.reduce((a, b) => a + b, 0)  / v4Open.length  : null
   if (ffaAvg !== null && v4Avg !== null) {
-    const hookWeak = ffaAvg < 0.4 || v4Avg < 0.4
-    items.push({
-      label: 'Opening hook (first 20% of video)',
-      status: hookWeak ? 'warn' : 'ok',
-      detail: hookWeak
-        ? `Face Detection avg ${(ffaAvg * 100).toFixed(0)}%, Color & Form avg ${(v4Avg * 100).toFixed(0)}% — open with a face and vivid visual to spike both`
-        : `Face Detection ${(ffaAvg * 100).toFixed(0)}% and Color & Form ${(v4Avg * 100).toFixed(0)}% — hook is strong`,
+    const weak = ffaAvg < 0.4 || v4Avg < 0.4
+    findings.push({
+      status: weak ? 'warn' : 'ok',
+      headline: weak
+        ? `Weak opening hook — Face Detection ${(ffaAvg * 100).toFixed(0)}%, Color & Form ${(v4Avg * 100).toFixed(0)}%`
+        : `Strong opening hook — Face Detection ${(ffaAvg * 100).toFixed(0)}%, Color & Form ${(v4Avg * 100).toFixed(0)}%`,
+      detail: weak
+        ? 'Open with a face on-camera and a vivid visual to engage both systems immediately'
+        : 'Both face presence and visual interest are strong at the start — keep this pattern',
     })
   }
 
-  // 2–4. Dip scan for FFA, DAN, VWFA
+  // Dip scan
   for (const key of ['FFA', 'DAN', 'VWFA'] as const) {
     const roi = byKey[key]
     if (!roi?.temporal_activations?.length) continue
     const dips = findDips(roi.temporal_activations)
     const tip = ROI_EDIT_TIPS[key]
     if (dips.length === 0) {
-      items.push({ label: `${tip.what} — no significant dips`, status: 'ok', detail: 'Engagement held throughout the video' })
+      findings.push({ roiKey: key, status: 'ok', headline: `${tip.what} held steady`, detail: 'No significant engagement drops detected for this region', dips: [] })
     } else {
-      const dipStr = dips.map(d => `t=${d.start}–${d.end}`).join(', ')
-      items.push({
-        label: `${tip.what} dips at ${dipStr}`,
+      findings.push({
+        roiKey: key,
         status: 'warn',
-        detail: `At those timesteps, ${tip.fix}`,
+        headline: `${tip.what} drops at ${dips.map(d => `t=${d.start}–${d.end}`).join(', ')}`,
+        detail: `Scrub to those moments and ${tip.fix}`,
+        dips,
       })
     }
   }
 
-  // 5. Top overall ROI insight
+  // Top overall insight
   const sorted = [...roiData].sort((a, b) => b.activation - a.activation)
   const top = sorted[0]
   if (top) {
     const tip = ROI_EDIT_TIPS[top.region_key]
-    items.push({
-      label: `Highest overall: ${top.label} (${(top.activation * 100).toFixed(0)}%)`,
+    findings.push({
+      roiKey: top.region_key,
       status: 'info',
+      headline: `Strongest system: ${top.label} (${(top.activation * 100).toFixed(0)}% avg)`,
       detail: tip
-        ? `Your audience responds most to ${tip.what.toLowerCase()} — lean into more of this content`
-        : `This region dominated — structure more scenes around what triggers it`,
+        ? `Your audience responds most to ${tip.what.toLowerCase()} — structure more scenes around what triggers it`
+        : 'This region dominated throughout — lean into content that reinforces it',
     })
   }
 
-  return items
+  return findings
 }
 
-function EditingGuide({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
-  const hasTemporalData = roiData.some(r => (r.temporal_activations?.length ?? 0) > 1)
-  const checklist = hasTemporalData ? buildChecklist(roiData) : []
+function FindingsPanel({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
+  const findings = buildFindings(roiData)
 
   return (
-    <div className="space-y-5 pt-2">
-      <div>
-        <h3 className="text-sm font-medium text-gray-300 mb-1">How to re-edit using this report</h3>
-        <p className="text-xs text-gray-500">
-          Each region measures a different cognitive system. Dips below ~35% mean the brain is coasting — those are your cut points.
-        </p>
+    <div className="space-y-3">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-sm font-medium text-gray-300">Editing Findings</h3>
+        <span className="text-xs text-gray-600">Shaded zones on chart above match the dip warnings below</span>
       </div>
-
-      {/* Region reference */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {Object.entries(ROI_EDIT_TIPS).map(([key, { what, fix }]) => (
-          <div key={key} className="flex gap-2.5 text-xs">
-            <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ backgroundColor: ROI_COLORS[key] ?? '#6b7280' }} />
-            <div>
-              <span className="text-gray-300 font-medium">{what}</span>
-              <span className="text-gray-600"> — low? </span>
-              <span className="text-gray-500">{fix}</span>
+      {findings.map((f, i) => {
+        const color = f.roiKey ? (ROI_COLORS[f.roiKey] ?? '#6b7280') : undefined
+        return (
+          <div
+            key={i}
+            className={[
+              'flex gap-3 rounded-lg px-4 py-3 border text-xs',
+              f.status === 'ok'   ? 'border-emerald-900/50 bg-emerald-950/20' :
+              f.status === 'warn' ? 'border-amber-900/50  bg-amber-950/20'  :
+                                    'border-indigo-900/50 bg-indigo-950/20',
+            ].join(' ')}
+          >
+            {/* ROI color dot — matches the chart line */}
+            {color ? (
+              <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ backgroundColor: color }} />
+            ) : (
+              <div className={[
+                'w-2 h-2 rounded-full mt-0.5 shrink-0',
+                f.status === 'ok' ? 'bg-emerald-500' : f.status === 'warn' ? 'bg-amber-400' : 'bg-indigo-400',
+              ].join(' ')} />
+            )}
+            <div className="flex-1 space-y-0.5">
+              <p className={[
+                'font-medium leading-snug',
+                f.status === 'ok'   ? 'text-emerald-300' :
+                f.status === 'warn' ? 'text-amber-300'   :
+                                      'text-indigo-300',
+              ].join(' ')}>{f.headline}</p>
+              <p className="text-gray-400 leading-snug">{f.detail}</p>
             </div>
+            {/* Status icon */}
+            <span className={[
+              'shrink-0 font-bold text-base leading-none',
+              f.status === 'ok'   ? 'text-emerald-500' :
+              f.status === 'warn' ? 'text-amber-400'   :
+                                    'text-indigo-400',
+            ].join(' ')}>
+              {f.status === 'ok' ? '✓' : f.status === 'warn' ? '!' : '→'}
+            </span>
           </div>
-        ))}
-      </div>
+        )
+      })}
+    </div>
+  )
+}
 
-      {/* Dynamic checklist */}
-      {checklist.length > 0 && (
-        <div className="space-y-2 pt-1">
-          <p className="text-xs font-medium text-gray-400">Your video — findings</p>
-          {checklist.map((item, i) => (
-            <div key={i} className="flex gap-2.5 text-xs">
-              <span className={[
-                'shrink-0 mt-0.5 w-3.5 text-center font-bold',
-                item.status === 'ok'   ? 'text-emerald-500' :
-                item.status === 'warn' ? 'text-amber-400' :
-                                         'text-indigo-400',
-              ].join(' ')}>
-                {item.status === 'ok' ? '✓' : item.status === 'warn' ? '!' : '→'}
-              </span>
+// ── Region reference ──────────────────────────────────────────────────────────
+
+function RegionReference() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-gray-800 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+      >
+        <span>What each brain region measures</span>
+        <span className="text-gray-700">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-800 pt-3">
+          {Object.entries(ROI_EDIT_TIPS).map(([key, { what, fix }]) => (
+            <div key={key} className="flex gap-2.5 text-xs">
+              <div className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ backgroundColor: ROI_COLORS[key] ?? '#6b7280' }} />
               <div>
-                <span className={[
-                  'font-medium',
-                  item.status === 'ok'   ? 'text-emerald-400' :
-                  item.status === 'warn' ? 'text-amber-300' :
-                                           'text-indigo-300',
-                ].join(' ')}>{item.label}</span>
-                <p className="text-gray-500 mt-0.5">{item.detail}</p>
+                <span className="text-gray-300 font-medium">{what}</span>
+                <span className="text-gray-600"> — low? </span>
+                <span className="text-gray-500">{fix}</span>
               </div>
             </div>
           ))}
@@ -263,6 +330,8 @@ function EditingGuide({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
     </div>
   )
 }
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function VideoReport({ analysisId, token, onReset }: Props) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
@@ -276,18 +345,15 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
       })
       if (!res.ok) return
       const data: AnalysisResult = await res.json()
-
       if (data.status === 'complete' || data.status === 'failed') {
         clearInterval(pollRef.current!)
         setResult(data)
         setStatus(data.status === 'complete' ? 'complete' : 'failed')
       }
-    }, 10000) // 10s poll — video takes 3-5 min
-
+    }, 10000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [analysisId, token])
 
-  // Polling state
   if (status === 'polling') {
     return (
       <div className="space-y-4 py-6 text-center">
@@ -302,53 +368,45 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
     )
   }
 
-  // Failed state
   if (status === 'failed' || !result) {
     return (
       <div className="space-y-3">
         <p className="text-sm text-red-400">Analysis failed.</p>
-        {result?.error_message && (
-          <p className="text-xs text-gray-500 font-mono">{result.error_message}</p>
-        )}
-        <button onClick={onReset} className="text-xs text-indigo-400 hover:text-indigo-300 underline">
-          Try another video
-        </button>
+        {result?.error_message && <p className="text-xs text-gray-500 font-mono">{result.error_message}</p>}
+        <button onClick={onReset} className="text-xs text-indigo-400 hover:text-indigo-300 underline">Try another video</button>
       </div>
     )
   }
 
   const roiData = (result.roi_data ?? []) as ROIRegionWithTemporal[]
   const hasTemporalData = roiData.some(r => (r.temporal_activations?.length ?? 0) > 1)
+  const dipZones = hasTemporalData ? computeDipZones(roiData) : []
 
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-white">Video Brain Activation Report</h2>
-        <button
-          onClick={onReset}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-        >
+        <button onClick={onReset} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
           Analyze another video
         </button>
       </div>
 
-      {/* Heatmap */}
+      {/* 1. Heatmap */}
       {result.heatmap_url && (
         <HeatmapPanel heatmapUrl={result.heatmap_url} originalAlt="Brain activation heatmap on representative frame" />
       )}
 
-      {/* Temporal chart */}
-      {hasTemporalData && <TemporalChart roiData={roiData} />}
+      {/* 2. Temporal chart — dip zones shaded */}
+      {hasTemporalData && <TemporalChart roiData={roiData} dipZones={dipZones} />}
 
-      {/* ROI bar chart */}
+      {/* 3. Findings — immediately under chart, colors match chart lines */}
+      {hasTemporalData && roiData.length > 0 && <FindingsPanel roiData={roiData} />}
+
+      {/* 4. Overall average bar chart */}
       {roiData.length > 0 && <ROIBarChart roiData={roiData} />}
 
-      {/* Editing guide + dynamic checklist */}
-      {roiData.length > 0 && (
-        <div className="border border-gray-800 rounded-xl px-5 py-5">
-          <EditingGuide roiData={roiData} />
-        </div>
-      )}
+      {/* 5. Region reference (collapsed by default) */}
+      <RegionReference />
 
       <AttributionFooter />
     </div>
