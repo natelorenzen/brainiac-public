@@ -45,13 +45,23 @@ async function fetchVideosViaAPI(
   const uploadsPlaylistId = channelData.items?.[0]?.contentDetails?.relatedPlaylists?.uploads
   if (!uploadsPlaylistId) throw new Error('Could not find uploads playlist for this channel')
 
-  // Step 2: fetch more than needed up-front so we have enough after filtering Shorts.
-  // Shorts are ≤ 60s — fetching 2× the requested count gives headroom.
+  // Step 2: fetch uploads + Shorts playlist in parallel.
+  // Shorts playlist ID = replace "UC" prefix with "UUSH" — YouTube maintains this automatically.
+  // Fetching 2× count from uploads gives headroom after Short exclusions.
   const fetchCount = Math.min(count * 2, 50)
-  const playlistRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${fetchCount}&key=${apiKey}`,
-    { headers: { 'User-Agent': UA } }
-  )
+  const shortsPlaylistId = 'UUSH' + channelId.slice(2)
+
+  const [playlistRes, shortsRes] = await Promise.all([
+    fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${fetchCount}&key=${apiKey}`,
+      { headers: { 'User-Agent': UA } }
+    ),
+    fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${shortsPlaylistId}&maxResults=50&key=${apiKey}`,
+      { headers: { 'User-Agent': UA } }
+    ),
+  ])
+
   if (!playlistRes.ok) throw new Error(`YouTube playlistItems API failed: ${playlistRes.status}`)
   const playlistData = await playlistRes.json() as {
     items?: { contentDetails: { videoId: string; videoPublishedAt: string } }[]
@@ -59,9 +69,24 @@ async function fetchVideosViaAPI(
   const items = playlistData.items ?? []
   if (items.length === 0) throw new Error('No videos found in uploads playlist')
 
-  const videoIds = items.map(i => i.contentDetails.videoId).join(',')
+  // Build a set of Short video IDs to exclude. If the Shorts playlist doesn't exist
+  // (404) or the channel has no Shorts, we get an empty set and nothing is excluded.
+  const shortsIds = new Set<string>()
+  if (shortsRes.ok) {
+    const shortsData = await shortsRes.json() as {
+      items?: { contentDetails: { videoId: string } }[]
+    }
+    for (const s of shortsData.items ?? []) shortsIds.add(s.contentDetails.videoId)
+  }
 
-  // Step 3: batch-fetch statistics + snippet (thumbnail dimensions for aspect ratio filtering)
+  const videoIds = items
+    .map(i => i.contentDetails.videoId)
+    .filter(id => !shortsIds.has(id))
+    .join(',')
+
+  if (!videoIds) throw new Error('No non-Short videos found in uploads playlist')
+
+  // Step 3: batch-fetch statistics + snippet
   const statsRes = await fetch(
     `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${apiKey}`,
     { headers: { 'User-Agent': UA } }
@@ -83,6 +108,8 @@ async function fetchVideosViaAPI(
     }[]
   }
 
+  // Secondary filter: portrait thumbnail aspect ratio catches any Shorts
+  // missed by the playlist exclusion (e.g. newly uploaded, playlist lag).
   return (statsData.items ?? [])
     .filter(item => !isVerticalVideo(item.snippet.thumbnails))
     .slice(0, count)
@@ -91,7 +118,6 @@ async function fetchVideosViaAPI(
       title: item.snippet.title,
       published: item.snippet.publishedAt,
       view_count: item.statistics.viewCount ? parseInt(item.statistics.viewCount, 10) : null,
-      // Prefer maxresdefault (1280×720); hqdefault (480×360) as fallback.
       thumbnail_url: item.snippet.thumbnails?.maxres?.url
         ?? `https://img.youtube.com/vi/${item.id}/maxresdefault.jpg`,
     }))
