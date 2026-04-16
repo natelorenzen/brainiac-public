@@ -1,37 +1,56 @@
-// Calls the Modal GPU worker via its web endpoint.
-// The worker handles: TRIBE v2 inference → heatmap generation → Supabase Storage upload → DB update.
-// Next.js fires the request and returns immediately; the worker updates the analyses row when done.
+// Modal worker dispatch helpers.
+//
+// Two workers, two endpoints:
+//   dispatchThumbnailJob  → BrainiacThumbnailInference (BERG, CPU)  — YouTube static thumbnails
+//   dispatchInferenceJob  → BrainiacInference (TRIBE v2, GPU)        — uploaded videos
 
-export interface InferenceJobPayload {
+export interface ThumbnailJobPayload {
   analysis_id: string
   supabase_url: string
-  content_type?: 'image' | 'video'  // defaults to 'image' in Modal worker
-  // Provide one of:
-  thumbnail_url?: string     // public YouTube thumbnail URL — Modal downloads directly
-  storage_key?: string       // key in 'creatives' or 'videos' bucket
+  thumbnail_url?: string  // public YouTube CDN URL
+  storage_key?: string    // key in 'creatives' bucket (manual uploads)
 }
 
-export async function dispatchInferenceJob(payload: InferenceJobPayload): Promise<void> {
-  const modalUrl = process.env.MODAL_INFERENCE_URL
-  if (!modalUrl) throw new Error('MODAL_INFERENCE_URL is not configured')
+export interface VideoJobPayload {
+  analysis_id: string
+  supabase_url: string
+  content_type: 'video'
+  storage_key: string     // key in 'videos' bucket
+}
 
-  // Fire-and-forget — Modal worker updates Supabase directly when done.
-  // We don't await the inference result here; clients poll /api/analyze/[id].
-  const res = await fetch(modalUrl, {
+async function _dispatch(url: string, payload: object, label: string): Promise<void> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-    // Do not set a short timeout here — the request kicks off the job then returns.
-    // Modal web endpoints respond 200 immediately for async functions.
   })
-
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`Modal dispatch failed (${res.status}): ${body}`)
+    throw new Error(`${label} dispatch failed (${res.status}): ${body}`)
   }
 }
 
+/** YouTube thumbnail analysis — BERG CPU worker. */
+export async function dispatchThumbnailJob(payload: ThumbnailJobPayload): Promise<void> {
+  const url = process.env.MODAL_THUMBNAIL_URL
+  if (!url) throw new Error('MODAL_THUMBNAIL_URL is not configured')
+  await _dispatch(url, payload, 'BERG thumbnail')
+}
+
+/** Uploaded video analysis — TRIBE v2 GPU worker. */
+export async function dispatchInferenceJob(payload: VideoJobPayload): Promise<void> {
+  const url = process.env.MODAL_INFERENCE_URL
+  if (!url) throw new Error('MODAL_INFERENCE_URL is not configured')
+  await _dispatch(url, payload, 'TRIBE v2 video')
+}
+
 export const ATTRIBUTION = {
+  model: 'BERG fmri-nsd-fwrf (Gifale et al.) via Natural Scenes Dataset',
+  license: 'CC-BY-NC-4.0',
+  license_url: 'https://creativecommons.org/licenses/by-nc/4.0/',
+}
+
+export const VIDEO_ATTRIBUTION = {
   model: 'Meta FAIR TRIBE v2',
   license: 'CC-BY-NC-4.0',
   license_url: 'https://creativecommons.org/licenses/by-nc/4.0/',

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 import { checkUserLimits, checkGlobalBudget, incrementUsage } from '@/lib/usage'
-import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
+import { dispatchThumbnailJob, ATTRIBUTION } from '@/lib/inference'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     .eq('id', analysis.id)
 
   try {
-    await dispatchInferenceJob({
+    await dispatchThumbnailJob({
       analysis_id: analysis.id,
       thumbnail_url: thumbnailUrl,
       supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,

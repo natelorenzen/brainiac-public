@@ -1,17 +1,24 @@
 """
-Brainiac — Modal GPU worker
+Brainiac — Modal workers
 
-Real TRIBE v2 inference: Meta FAIR brain encoding model predicts fMRI activations
-across the cortical surface in response to visual stimuli.
+Two inference paths:
 
-MOCK_MODE env var (default false): set to "true" to fall back to image-statistics
-scores without loading the TRIBE model. Useful for development and debugging.
+  BrainiacThumbnailInference  (BERG, CPU-only)
+    - YouTube static thumbnails → BERG fmri-nsd-fwrf → 6 visual-cortex ROI scores
+    - No GPU, no ffmpeg, no HuggingFace token required
+    - Endpoint label: brainiac-thumbnail-inference
+    - One-time weight setup: modal run modal/inference.py::download_berg_weights
 
-Deploy: modal deploy modal/inference.py
+  BrainiacInference  (TRIBE v2, GPU)
+    - Uploaded videos → TRIBE v2 → 10 full-cortex ROI scores + temporal activations
+    - Requires L4 GPU, HF_TOKEN secret (brainiac-hf)
+    - Endpoint label: brainiac-inference
+
+Deploy both: modal deploy modal/inference.py
 
 Secrets required in Modal dashboard:
-  - "brainiac-supabase": SUPABASE_SERVICE_ROLE_KEY
-  - "brainiac-hf":       HF_TOKEN  (HuggingFace read token, needs LLaMA 3.2 access)
+  - "brainiac-supabase": SUPABASE_SERVICE_ROLE_KEY   (both workers)
+  - "brainiac-hf":       HF_TOKEN                    (BrainiacInference only)
 """
 
 import io
@@ -27,6 +34,59 @@ MOCK_MODE = os.environ.get("MOCK_MODE", "false").lower() == "true"
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = modal.App("brainiac-inference")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BERG thumbnail worker (CPU)
+# ─────────────────────────────────────────────────────────────────────────────
+
+berg_volume = modal.Volume.from_name("brainiac-berg-weights", create_if_missing=True)
+
+berg_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git", "awscli", "libgl1-mesa-glx", "libglib2.0-0")
+    .pip_install(
+        "fastapi[standard]",
+        "numpy",
+        "Pillow",
+        "opencv-python-headless",
+        "matplotlib",
+        "scipy",
+        "supabase",
+        "torch>=2.5.1",
+        "torchvision>=0.20",
+    )
+    .run_commands(
+        "pip install -U 'git+https://github.com/gifale95/BERG.git'"
+    )
+)
+
+# BERG ROI keys → our output ROI keys.
+# Each BERG key maps to one of our 6 visual-cortex output labels.
+# Multiple BERG keys mapped to the same output key are averaged.
+BERG_ROI_MAP: dict[str, list[str]] = {
+    "FFA":   ["FFA-1", "FFA-2"],
+    "V1_V2": ["V1", "V2"],
+    "V4":    ["hV4"],
+    "LO":    ["lateral"],
+    "PPA":   ["PPA"],
+    "VWFA":  ["VWFA-1", "VWFA-2"],
+}
+
+# All unique BERG ROI keys we need to load
+BERG_ROI_KEYS: list[str] = sorted({k for keys in BERG_ROI_MAP.values() for k in keys})
+
+BERG_REGISTRY = {
+    "FFA":   {"label": "Face Detection",           "description": "A face or face-like element is visually dominant in this image."},
+    "V1_V2": {"label": "Low-Level Visual Signal",   "description": "Strong contrast, edges, or luminance variation is present."},
+    "V4":    {"label": "Color and Form Processing", "description": "Color relationships and shape boundaries are being processed."},
+    "LO":    {"label": "Object Recognition",        "description": "Distinct objects or elements are registering as meaningful visual units."},
+    "PPA":   {"label": "Scene Recognition",         "description": "The background or setting is being processed as contextual information."},
+    "VWFA":  {"label": "Text Processing",           "description": "Text in this image is legible and occupying visual attention."},
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIBE v2 video worker (GPU)
+# ─────────────────────────────────────────────────────────────────────────────
 
 model_volume = modal.Volume.from_name("brainiac-tribe-weights", create_if_missing=True)
 
@@ -349,11 +409,266 @@ def generate_heatmap(image_bytes: bytes, roi_data: list[dict]) -> bytes:
     return out.getvalue()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# One-time setup: download BERG weights into the Modal volume.
+# Run once before deploying: modal run modal/inference.py::download_berg_weights
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.function(
+    image=berg_image,
+    volumes={"/cache/berg": berg_volume},
+    timeout=1800,
+)
+def download_berg_weights():
+    """
+    Sync BERG fmri-nsd-fwrf weights for subject 1 from the public AWS S3 bucket
+    into the brainiac-berg-weights Modal volume.
+
+    Only downloads subject-01 weight files (~50 MB) rather than the entire bucket.
+    Re-run any time you want to refresh weights or add new ROIs.
+    """
+    import subprocess
+
+    dest = "/cache/berg"
+    s3_prefix = (
+        "s3://brain-encoding-response-generator/"
+        "encoding_models/modality-fmri/train_dataset-nsd/model-fwrf/"
+    )
+    local_prefix = f"{dest}/encoding_models/modality-fmri/train_dataset-nsd/model-fwrf/"
+
+    print(f"Syncing BERG fwRF weights (subject 1 only) to {dest} ...")
+    subprocess.run(
+        [
+            "aws", "s3", "sync", "--no-sign-request",
+            s3_prefix, local_prefix,
+            "--exclude", "*",
+            "--include", "weights_sub-01_roi-*.pt",
+            "--include", "*.json",
+            "--include", "*.yaml",
+            "--include", "*.pkl",
+        ],
+        check=True,
+    )
+    berg_volume.commit()
+    print("BERG weight download complete.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BrainiacThumbnailInference — BERG, CPU-only, YouTube static thumbnails
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.cls(
+    image=berg_image,
+    volumes={"/cache/berg": berg_volume},
+    timeout=120,
+    secrets=[modal.Secret.from_name("brainiac-supabase")],
+)
+class BrainiacThumbnailInference:
+    """
+    CPU-only worker for YouTube thumbnail analysis.
+    Uses BERG fmri-nsd-fwrf (subject 1) to predict fMRI activations
+    in 6 visual-cortex ROIs from a static JPEG image.
+    """
+
+    @modal.enter()
+    def load(self):
+        import numpy as np
+
+        self.mock_mode = MOCK_MODE
+
+        if not self.mock_mode:
+            from berg import BERG
+
+            print("Loading BERG fmri-nsd-fwrf models (subject 1)...")
+            self.berg = BERG(berg_dir="/cache/berg")
+            self.berg_models = {}
+            for roi_key in BERG_ROI_KEYS:
+                try:
+                    self.berg_models[roi_key] = self.berg.get_encoding_model(
+                        "fmri-nsd-fwrf",
+                        subject=1,
+                        device="cpu",
+                        selection={"roi": roi_key},
+                    )
+                    print(f"  Loaded BERG model: {roi_key}")
+                except Exception as e:
+                    print(f"  WARNING: could not load BERG model for {roi_key}: {e}")
+            print(f"BERG ready — {len(self.berg_models)} ROI models loaded.")
+        else:
+            self.berg = None
+            self.berg_models = {}
+            print("MOCK_MODE=true — skipping BERG model load.")
+
+    def _run_berg(self, img_rgb) -> tuple[list[dict], float]:
+        """Run BERG on a (H, W, 3) uint8 RGB array. Returns (roi_data, mean_top_3)."""
+        import numpy as np
+
+        # BERG expects (batch, 3, H, W) uint8, square image
+        h, w = img_rgb.shape[:2]
+        side = min(h, w)
+        # Center-crop to square
+        top  = (h - side) // 2
+        left = (w - side) // 2
+        cropped = img_rgb[top:top+side, left:left+side]
+
+        # Resize to 224×224 (standard for fwRF backbone)
+        from PIL import Image as PILImage
+        pil = PILImage.fromarray(cropped).resize((224, 224), PILImage.LANCZOS)
+        arr = np.array(pil, dtype=np.uint8)                    # (224, 224, 3)
+        batch = arr.transpose(2, 0, 1)[np.newaxis, ...]        # (1, 3, 224, 224)
+
+        # Run BERG for each needed ROI key, collect raw mean activations
+        raw: dict[str, float] = {}
+        for berg_key, model in self.berg_models.items():
+            resp = self.berg.encode(model, batch)               # (1, n_voxels)
+            raw[berg_key] = float(np.mean(resp[0]))
+
+        # Map BERG keys → our 6 output ROI keys (average multi-key mappings)
+        out_scores: dict[str, float] = {}
+        for roi_key, berg_keys in BERG_ROI_MAP.items():
+            vals = [raw[k] for k in berg_keys if k in raw]
+            out_scores[roi_key] = float(np.mean(vals)) if vals else 0.0
+
+        # Normalize across the 6 output ROIs to [0, 1]
+        vals = list(out_scores.values())
+        v_min, v_max = min(vals), max(vals)
+        span = v_max - v_min + 1e-8
+        normalized = {k: (v - v_min) / span for k, v in out_scores.items()}
+
+        results = [
+            {
+                "region_key": roi_key,
+                "label":      BERG_REGISTRY[roi_key]["label"],
+                "activation": round(normalized[roi_key], 4),
+                "description": BERG_REGISTRY[roi_key]["description"],
+            }
+            for roi_key in BERG_ROI_MAP
+        ]
+        results.sort(key=lambda x: x["activation"], reverse=True)
+        mean_top = round(float(np.mean([r["activation"] for r in results[:3]])), 4)
+        return results, mean_top
+
+    def _process(self, body: dict) -> None:
+        """
+        Background thread: download thumbnail → BERG inference → heatmap → Supabase.
+        Called from run_inference via a daemon thread so the HTTP response returns
+        immediately without waiting for inference to complete.
+        """
+        import numpy as np
+        import cv2
+        import urllib.request
+        from supabase import create_client
+
+        analysis_id: str = body["analysis_id"]
+        thumbnail_url: str | None = body.get("thumbnail_url")
+        storage_key: str | None = body.get("storage_key")
+        supabase_url: str = body["supabase_url"]
+        service_role_key: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+
+        db = create_client(supabase_url, service_role_key)
+
+        def fail(msg: str):
+            db.table("analyses").update({
+                "status": "failed",
+                "error_message": msg,
+            }).eq("id", analysis_id).execute()
+
+        # ── Download image ────────────────────────────────────────────────────
+        if thumbnail_url:
+            try:
+                req = urllib.request.Request(
+                    thumbnail_url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; Brainiac/1.0)"},
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    image_bytes = resp.read()
+            except Exception as e:
+                fail(f"Thumbnail download failed: {e}"); return
+        elif storage_key:
+            try:
+                image_bytes = bytes(db.storage.from_("creatives").download(storage_key))
+            except Exception as e:
+                fail(f"Storage download failed: {e}"); return
+        else:
+            fail("No thumbnail_url or storage_key provided"); return
+
+        # ── Decode ────────────────────────────────────────────────────────────
+        try:
+            arr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                fail("Could not decode image"); return
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            fail(f"Image decode failed: {e}"); return
+
+        # ── Inference ─────────────────────────────────────────────────────────
+        if self.mock_mode:
+            roi_data, mean_top_roi_score = mock_roi_scores(img_rgb)
+            berg_keys = set(BERG_REGISTRY.keys())
+            roi_data = [r for r in roi_data if r["region_key"] in berg_keys]
+            roi_data.sort(key=lambda x: x["activation"], reverse=True)
+        else:
+            try:
+                roi_data, mean_top_roi_score = self._run_berg(img_rgb)
+            except Exception as e:
+                fail(f"BERG inference failed: {e}"); return
+
+        # ── Heatmap ───────────────────────────────────────────────────────────
+        try:
+            heatmap_bytes = generate_heatmap(image_bytes, roi_data)
+        except Exception as e:
+            fail(f"Heatmap generation failed: {e}"); return
+
+        # ── Upload heatmap ────────────────────────────────────────────────────
+        heatmap_key = f"{analysis_id}.png"
+        try:
+            db.storage.from_("heatmaps").upload(
+                heatmap_key, heatmap_bytes,
+                {"content-type": "image/png", "upsert": "true"},
+            )
+            heatmap_url = db.storage.from_("heatmaps").get_public_url(heatmap_key)
+        except Exception as e:
+            fail(f"Heatmap upload failed: {e}"); return
+
+        # ── Write results ─────────────────────────────────────────────────────
+        db.table("analyses").update({
+            "status": "complete",
+            "input_storage_key": thumbnail_url or storage_key,
+            "heatmap_storage_key": heatmap_key,
+            "heatmap_url": heatmap_url,
+            "roi_data": roi_data,
+            "mean_top_roi_score": mean_top_roi_score,
+            "completed_at": datetime.datetime.utcnow().isoformat(),
+        }).eq("id", analysis_id).execute()
+
+    @modal.fastapi_endpoint(method="POST", label="brainiac-thumbnail-inference")
+    def run_inference(self, body: dict) -> dict:
+        """
+        Fire-and-forget endpoint. Returns {"status": "queued"} immediately so
+        Vercel never times out waiting. Actual inference runs in a daemon thread.
+        Body: { analysis_id, supabase_url, thumbnail_url? | storage_key? }
+        """
+        import threading
+
+        analysis_id: str = body.get("analysis_id", "unknown")
+        if not body.get("analysis_id"):
+            return {"status": "error", "error": "analysis_id required"}
+
+        thread = threading.Thread(target=self._process, args=(body,), daemon=True)
+        thread.start()
+        return {"status": "queued", "analysis_id": analysis_id}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BrainiacInference — TRIBE v2, GPU, uploaded videos
+# ─────────────────────────────────────────────────────────────────────────────
+
 @app.cls(
     image=image,
     volumes={"/cache": model_volume},
     timeout=600,
-    gpu="T4",
+    gpu="L4",
     secrets=[
         modal.Secret.from_name("brainiac-supabase"),
         modal.Secret.from_name("brainiac-hf"),
@@ -451,15 +766,16 @@ class BrainiacInference:
                 if duration > 60:
                     print(f"Trimming video from {duration:.1f}s to 60s")
 
-                # -an strips audio track — prevents Whisper transcription
+                # -an strips audio (prevents Whisper), -vf fps=4 downsamples to 4fps
+                # so V-JEPA2 encodes ~11 steps instead of ~65, keeping inference < 5 min
                 silent_path = os.path.join(tmp_dir, "silent.mp4")
                 subprocess.run(
                     ["ffmpeg", "-y", "-i", vid_path] + trim_flag +
-                    ["-an", "-c:v", "copy", silent_path],
+                    ["-an", "-vf", "fps=4", "-c:v", "libx264", "-preset", "fast", silent_path],
                     check=True, capture_output=True
                 )
                 vid_path = silent_path
-                print("Audio stripped — skipping Whisper transcription")
+                print("Audio stripped and downsampled to 4fps — faster V-JEPA2 encoding")
             except Exception as e:
                 print(f"ffmpeg prep warning (non-fatal): {e}")
 

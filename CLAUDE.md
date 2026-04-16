@@ -8,16 +8,19 @@
 
 A free, non-commercial YouTube thumbnail brain activation analyzer.
 Users enter a YouTube channel handle. The app pulls the 25 most recent videos via the
-YouTube Data API, runs each thumbnail through the Meta FAIR TRIBE v2 model (CC-BY-NC-4.0)
-on Modal GPU workers, then correlates each brain region's activation score against the
+YouTube Data API, runs each thumbnail through BERG (fmri-nsd-fwrf, CC-BY-NC-4.0) on
+Modal CPU workers, then correlates each brain region's activation score against the
 video's actual view count — showing which visual signals statistically track with
 performance on that specific channel.
 
-**Current inference mode: REAL — MOCK_MODE = False** in the `brainiac-hf` Modal secret.
-Real TRIBE v2 weights loaded from HuggingFace, cached in the `brainiac-tribe-weights` Modal volume.
+The Video Analyzer tab uses Meta FAIR TRIBE v2 (CC-BY-NC-4.0) on Modal GPU workers for
+uploaded video files.
 
-**No revenue is generated. No performance claims are made. CC-BY-NC-4.0 until a commercial
-license is obtained from Meta FAIR.**
+**Two Modal workers:**
+- `BrainiacThumbnailInference` — BERG, CPU, YouTube thumbnails. Weights in `brainiac-berg-weights` volume.
+- `BrainiacInference` — TRIBE v2, L4 GPU, uploaded videos. Weights in `brainiac-tribe-weights` volume.
+
+**No revenue is generated. No performance claims are made. CC-BY-NC-4.0 on both models.**
 
 **Live URL:** https://brainiac-ivory.vercel.app
 **GitHub:** https://github.com/natelorenzen/brainiac
@@ -32,7 +35,8 @@ license is obtained from Meta FAIR.**
 | Framework | Next.js 16.2.1 (App Router) |
 | Database & Auth | Supabase (Postgres + RLS + auth.users) |
 | Storage | Supabase Storage (bucket: `heatmaps` only — thumbnails now fetched directly from YouTube by Modal) |
-| GPU Inference | Modal (Python workers — `modal/inference.py`, T4 GPU, `@app.cls` pattern) |
+| Thumbnail Inference | Modal CPU — BERG fmri-nsd-fwrf (`BrainiacThumbnailInference`) |
+| Video Inference | Modal L4 GPU — TRIBE v2 (`BrainiacInference`) |
 | Hosting | Vercel |
 | Styling | Tailwind CSS v4 |
 | Charts | Recharts |
@@ -54,6 +58,7 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=          # server-only, never expose client-side
 
+MODAL_THUMBNAIL_URL=https://natelorenzen--brainiac-thumbnail-inference.modal.run
 MODAL_INFERENCE_URL=https://natelorenzen--brainiac-inference.modal.run
 
 ENCRYPTION_KEY=                     # 64-char hex (openssl rand -hex 32)
@@ -66,20 +71,20 @@ YOUTUBE_DATA_API_KEY=               # Required — channel resolution + video li
 
 NEXT_PUBLIC_APP_URL=
 MONTHLY_BUDGET_CAP_USD=300.0
-COST_PER_ANALYSIS_USD=0.03          # Updated: real TRIBE v2 inference ~$0.03/thumbnail on T4
+COST_PER_ANALYSIS_USD=0.0002        # BERG CPU inference ~$0.0002/thumbnail (was $0.03 on T4)
 CURRENT_LEGAL_VERSION=1.0.0
 ```
 
 ### Modal Secrets
 
-Two secrets required in Modal dashboard:
-
-**`brainiac-supabase`**
+**`brainiac-supabase`** (both workers)
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-**`brainiac-hf`**
+**`brainiac-hf`** (BrainiacInference / video worker only)
 - `HF_TOKEN` — HuggingFace read token (requires LLaMA 3.2-3B access approval from Meta)
 - `MOCK_MODE` — set to `true` to use image-statistics fallback, `false` for real TRIBE v2
+
+BERG thumbnail worker reads `MOCK_MODE` from the environment but does **not** require `HF_TOKEN`.
 
 ---
 
@@ -160,60 +165,74 @@ POST /api/oauth/meta/disconnect      Revoke + deactivate account
 
 ## Inference Architecture
 
+### YouTube Channel Analyzer (thumbnails → BERG)
+
 ```
 User enters @channelhandle
-  → YouTube Data API: resolves handle → channel ID (forHandle, preferred)
+  → YouTube Data API: resolves handle → channel ID
   → YouTube Data API: uploads playlist → 25 most recent video IDs
   → YouTube Data API: batch statistics → view counts for all 25
   → Next.js API validates auth + consent + usage caps
-  → All 25 thumbnails processed in parallel:
+  → All 25 thumbnails dispatched in parallel to MODAL_THUMBNAIL_URL:
       → Supabase: insert analyses row (status: queued → processing)
-      → POST to Modal web endpoint with { analysis_id, thumbnail_url }
-        (fire and forget — Modal endpoint returns immediately)
-  → API returns { analysis_ids[], video_map{} } to client
+      → POST { analysis_id, thumbnail_url } to BrainiacThumbnailInference
 
-Modal worker (real TRIBE v2, T4 GPU):
+BrainiacThumbnailInference (BERG, CPU):
   → Downloads thumbnail directly from YouTube CDN URL
-  → Converts static JPEG → 4-second looping MP4 (via ffmpeg)
-  → Runs TRIBE v2 inference (video-only mode, no audio/text for thumbnails):
-      → V-JEPA2 encodes video frames
-      → Predicts fMRI vertex activations: shape (4, 20484) on fsaverage5 mesh
-      → Averages across timesteps → (20484,) vertex activation vector
-  → Extracts ROI scores using Destrieux atlas vertex mapping:
-      → 10 ROI keys → fsaverage5 vertex indices (built at container startup)
-      → Normalizes to [0, 1]
+  → Center-crops and resizes to 224×224 (no ffmpeg, no video conversion)
+  → Runs BERG fmri-nsd-fwrf (subject 1) for 9 ROI models:
+      FFA-1, FFA-2, V1, V2, hV4, lateral, PPA, VWFA-1, VWFA-2
+  → Aggregates to 6 output ROI keys: FFA, V1_V2, V4, LO, PPA, VWFA
+  → Normalizes scores to [0, 1]
   → Generates viridis heatmap overlay using spatial priors
   → Uploads heatmap to Supabase Storage (bucket: heatmaps)
   → Updates analyses row (status: complete, roi_data, heatmap_url)
 
 Client polls all 25 analysis IDs every 3s (parallel)
-  → Tracks N/25 progress
   → When all settle: computes Pearson r per ROI vs log(view_count)
   → Renders ranked correlation table + scatter chart for top region
 ```
 
+### Video Analyzer (uploaded videos → TRIBE v2)
+
+```
+User uploads MP4 → BrainiacInference (TRIBE v2, L4 GPU)
+  → Downloads video from Supabase Storage
+  → Strips audio, downsamples to 4 fps
+  → Runs TRIBE v2 → (n_timesteps, 20484) vertex activations
+  → Extracts 10 ROI scores via Destrieux atlas
+  → Generates heatmap, writes results to Supabase
+```
+
 ### Key architecture decisions
-- **No thumbnail storage**: thumbnails are never stored in Supabase. Modal downloads
-  directly from YouTube CDN. Only heatmaps (outputs) are stored.
-- **Fire and forget**: Modal endpoint returns `{status: queued}` immediately via
-  background thread. Next.js route completes in ~5s for 25 thumbnails.
-- **Model loaded once**: `@app.cls` + `@modal.enter()` loads TribeModel and ROI vertex
-  map once per container cold start. Warm containers reuse across requests.
-- **ROI vertex map**: Destrieux 2009 atlas on fsaverage5. Built at startup, hardcoded
-  mapping of 10 ROI keys → cortical vertex indices.
+- **Two separate Modal workers**: thumbnails run CPU-only (BERG), videos run on L4 GPU (TRIBE v2).
+- **No thumbnail storage**: thumbnails are never stored in Supabase. Modal downloads directly from YouTube CDN.
+- **BERG weights in volume**: pre-downloaded once via `download_berg_weights`, loaded at cold start.
+- **Static image input**: BERG takes JPEG directly — no ffmpeg, no MP4 conversion needed.
+- **6 visual-cortex ROIs** for thumbnails (FFA, V1_V2, V4, LO, PPA, VWFA); 10 full-cortex ROIs for video.
 
 ---
 
-## TRIBE v2 Model Details
+## Model Details
 
-- **Source**: `github.com/facebookresearch/tribev2`, installed via `pip install git+...`
+### BERG fmri-nsd-fwrf (thumbnail worker)
+- **Source**: `github.com/gifale95/BERG`, pip-installable
+- **Weights**: public AWS S3 `s3://brain-encoding-response-generator`, cached in `brainiac-berg-weights` Modal volume
+- **Input**: `(1, 3, 224, 224)` uint8 numpy array (no GPU required)
+- **Output**: per-voxel activation per ROI, averaged to a scalar per ROI key
+- **Subject**: hardcoded subject=1 (NSD dataset, 8 subjects available)
+- **ROI mapping**: BERG native keys → 6 output keys (FFA, V1_V2, V4, LO, PPA, VWFA)
+- **Inference time**: ~5–10 seconds per thumbnail on CPU
+- **License**: CC-BY-NC-4.0
+
+### TRIBE v2 (video worker)
+- **Source**: `github.com/facebookresearch/tribev2`
 - **Weights**: `facebook/tribev2` on HuggingFace, cached in `brainiac-tribe-weights` Modal volume
-- **Input**: MP4 video (we create a 4-second static loop from each thumbnail via ffmpeg)
+- **Input**: MP4 video (strips audio, 4fps)
 - **Output**: `(n_timesteps, 20484)` — vertex activations on fsaverage5 cortical mesh
-- **ROI mapping**: Destrieux atlas → 10 functional regions (FFA, V1_V2, V4, LO, PPA, STS, DAN, VWFA, DMN, AV_ASSOC)
-- **Inference time**: ~2 minutes per thumbnail on T4 GPU
-- **Modal GPU limit**: 10 concurrent containers (Starter plan) — 25 thumbnails queue in batches of 10
-- **Known issue**: PPA (Scene Recognition) scores 0 across all thumbnails — likely a vertex mapping gap in the Destrieux atlas for parahippocampal cortex. Non-blocking.
+- **ROI mapping**: Destrieux atlas → 10 functional regions
+- **Inference time**: ~2 minutes per video on L4 GPU
+- **License**: CC-BY-NC-4.0
 
 ---
 

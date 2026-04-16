@@ -3,7 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import { checkUserLimits, checkGlobalBudget, incrementUsage } from '@/lib/usage'
 import { hasRequiredConsents } from '@/lib/consent'
 import { uploadCreative } from '@/lib/storage'
-import { dispatchInferenceJob, ATTRIBUTION } from '@/lib/inference'
+import { dispatchThumbnailJob, ATTRIBUTION } from '@/lib/inference'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -105,9 +105,9 @@ export async function POST(req: NextRequest) {
     .update({ input_storage_key: storageKey, status: 'processing' })
     .eq('id', analysis.id)
 
-  // Dispatch Modal inference job (fire and forget — worker updates Supabase when done)
+  // Dispatch BERG thumbnail inference job (fire and forget — worker updates Supabase when done)
   try {
-    await dispatchInferenceJob({
+    await dispatchThumbnailJob({
       analysis_id: analysis.id,
       storage_key: storageKey,
       supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,

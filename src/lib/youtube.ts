@@ -61,7 +61,7 @@ async function fetchVideosViaAPI(
 
   const videoIds = items.map(i => i.contentDetails.videoId).join(',')
 
-  // Step 3: batch-fetch statistics + snippet + contentDetails (for duration filtering)
+  // Step 3: batch-fetch statistics + snippet + contentDetails (for duration + aspect ratio filtering)
   const statsRes = await fetch(
     `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${videoIds}&key=${apiKey}`,
     { headers: { 'User-Agent': UA } }
@@ -70,27 +70,50 @@ async function fetchVideosViaAPI(
   const statsData = await statsRes.json() as {
     items?: {
       id: string
-      snippet: { title: string; publishedAt: string }
+      snippet: {
+        title: string
+        publishedAt: string
+        thumbnails?: {
+          maxres?: { width: number; height: number; url: string }
+          high?:   { width: number; height: number; url: string }
+        }
+      }
       statistics: { viewCount?: string }
       contentDetails: { duration: string }
     }[]
   }
 
   return (statsData.items ?? [])
-    .filter(item => !isShort(item.contentDetails.duration))
+    .filter(item => !isVerticalVideo(item.snippet.thumbnails) && !isShort(item.contentDetails.duration))
     .slice(0, count)
     .map(item => ({
       video_id: item.id,
       title: item.snippet.title,
       published: item.snippet.publishedAt,
       view_count: item.statistics.viewCount ? parseInt(item.statistics.viewCount, 10) : null,
-      thumbnail_url: `https://img.youtube.com/vi/${item.id}/hqdefault.jpg`,
+      // Prefer maxresdefault (1280×720); hqdefault (480×360) as fallback.
+      thumbnail_url: item.snippet.thumbnails?.maxres?.url
+        ?? `https://img.youtube.com/vi/${item.id}/maxresdefault.jpg`,
     }))
 }
 
-// ── Shorts filter ────────────────────────────────────────────────────────────
-// YouTube Shorts are ≤ 60 seconds. Duration is ISO 8601: PT#H#M#S.
-// Examples: PT45S (45s Short), PT1M30S (90s video), PT10M (10 min video).
+// ── Shorts filters ───────────────────────────────────────────────────────────
+// Primary: thumbnail aspect ratio. YouTube Shorts have vertical thumbnails
+// (maxres: 720×1280). Regular videos are horizontal (maxres: 1280×720).
+// This catches Shorts of any duration, including the newer ≤3-minute Shorts.
+//
+// Secondary: duration ≤ 60s catches very short Shorts that lack a vertical
+// maxres thumbnail (older uploads, auto-generated thumbnails, etc.).
+
+function isVerticalVideo(
+  thumbnails?: { maxres?: { width: number; height: number } }
+): boolean {
+  const maxres = thumbnails?.maxres
+  if (maxres?.width && maxres?.height) {
+    return maxres.height > maxres.width
+  }
+  return false
+}
 
 function isShort(isoDuration: string): boolean {
   const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
