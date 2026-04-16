@@ -423,34 +423,42 @@ def download_berg_weights():
     """
     Sync BERG fmri-nsd-fwrf weights for subject 1 from the public AWS S3 bucket
     into the brainiac-berg-weights Modal volume.
-
-    Only downloads subject-01 weight files (~50 MB) rather than the entire bucket.
-    Re-run any time you want to refresh weights or add new ROIs.
     """
     import subprocess
+    import os
 
     dest = "/cache/berg"
-    s3_prefix = (
-        "s3://brain-encoding-response-generator/"
-        "encoding_models/modality-fmri/train_dataset-nsd/model-fwrf/"
-    )
-    local_prefix = f"{dest}/encoding_models/modality-fmri/train_dataset-nsd/model-fwrf/"
+    s3_base = "s3://brain-encoding-response-generator"
+    s3_model = f"{s3_base}/encoding_models/modality-fmri/train_dataset-nsd/model-fwrf"
+    local_model = f"{dest}/encoding_models/modality-fmri/train_dataset-nsd/model-fwrf"
 
-    print(f"Syncing BERG fwRF weights (subject 1 only) to {dest} ...")
+    # First: list what's on S3 so we know the actual filenames
+    print("Listing S3 bucket structure (first 50 files)...")
+    result = subprocess.run(
+        ["aws", "s3", "ls", "--no-sign-request", "--recursive", s3_model + "/"],
+        capture_output=True, text=True
+    )
+    lines = result.stdout.strip().splitlines()
+    for line in lines[:50]:
+        print(f"  S3: {line}")
+    print(f"  ... ({len(lines)} total files)")
+
+    # Sync everything under model-fwrf — no filtering so we don't miss
+    # files with unexpected suffixes (e.g. lateral_split-1.pt)
+    print(f"\nSyncing all model-fwrf files to {local_model} ...")
     subprocess.run(
-        [
-            "aws", "s3", "sync", "--no-sign-request",
-            s3_prefix, local_prefix,
-            "--exclude", "*",
-            "--include", "weights_sub-01_roi-*.pt",
-            "--include", "*.json",
-            "--include", "*.yaml",
-            "--include", "*.pkl",
-        ],
+        ["aws", "s3", "sync", "--no-sign-request", s3_model + "/", local_model + "/"],
         check=True,
     )
+
+    # List what landed locally
+    print("\nLocal files after sync:")
+    for root, dirs, files in os.walk(dest):
+        for f in files:
+            print(f"  {os.path.join(root, f)}")
+
     berg_volume.commit()
-    print("BERG weight download complete.")
+    print("\nBERG weight download complete.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -473,27 +481,49 @@ class BrainiacThumbnailInference:
     @modal.enter()
     def load(self):
         import numpy as np
+        import os
 
         self.mock_mode = MOCK_MODE
+        self.berg_load_error: str | None = None
 
         if not self.mock_mode:
-            from berg import BERG
+            # Log volume contents so we can verify weights landed in the right place
+            berg_dir = "/cache/berg"
+            print(f"BERG weight dir contents ({berg_dir}):")
+            for root, dirs, files in os.walk(berg_dir):
+                depth = root.replace(berg_dir, "").count(os.sep)
+                indent = "  " * depth
+                print(f"{indent}{os.path.basename(root)}/")
+                if depth < 4:
+                    for f in files[:5]:
+                        print(f"{indent}  {f}")
 
-            print("Loading BERG fmri-nsd-fwrf models (subject 1)...")
-            self.berg = BERG(berg_dir="/cache/berg")
-            self.berg_models = {}
-            for roi_key in BERG_ROI_KEYS:
-                try:
-                    self.berg_models[roi_key] = self.berg.get_encoding_model(
-                        "fmri-nsd-fwrf",
-                        subject=1,
-                        device="cpu",
-                        selection={"roi": roi_key},
-                    )
-                    print(f"  Loaded BERG model: {roi_key}")
-                except Exception as e:
-                    print(f"  WARNING: could not load BERG model for {roi_key}: {e}")
-            print(f"BERG ready — {len(self.berg_models)} ROI models loaded.")
+            try:
+                from berg import BERG
+                print("Loading BERG fmri-nsd-fwrf models (subject 1)...")
+                self.berg = BERG(berg_dir=berg_dir)
+                self.berg_models = {}
+                for roi_key in BERG_ROI_KEYS:
+                    try:
+                        self.berg_models[roi_key] = self.berg.get_encoding_model(
+                            "fmri-nsd-fwrf",
+                            subject=1,
+                            device="cpu",
+                            selection={"roi": roi_key},
+                        )
+                        print(f"  Loaded BERG model: {roi_key}")
+                    except Exception as e:
+                        print(f"  FAILED to load BERG model for {roi_key}: {type(e).__name__}: {e}")
+                print(f"BERG ready — {len(self.berg_models)}/{len(BERG_ROI_KEYS)} ROI models loaded.")
+                if not self.berg_models:
+                    self.berg_load_error = "No BERG ROI models loaded — check weight path and API"
+            except Exception as e:
+                import traceback
+                self.berg_load_error = f"BERG init failed: {type(e).__name__}: {e}"
+                self.berg = None
+                self.berg_models = {}
+                print(f"BERG INIT ERROR: {self.berg_load_error}")
+                traceback.print_exc()
         else:
             self.berg = None
             self.berg_models = {}
@@ -593,12 +623,17 @@ class BrainiacThumbnailInference:
             fail("No thumbnail_url or storage_key provided"); return
 
         # ── Decode ────────────────────────────────────────────────────────────
+        # Use PIL instead of cv2 — PIL silently ignores bad ICC/iCCP chunks
+        # that cause libpng to return None from cv2.imdecode.
         try:
-            arr = np.frombuffer(image_bytes, np.uint8)
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if img is None:
-                fail("Could not decode image"); return
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            from PIL import Image as PILImage
+            pil_img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+            img_rgb = np.array(pil_img, dtype=np.uint8)
+            # Re-encode as clean JPEG (strips all metadata incl. bad ICC profiles)
+            # so generate_heatmap never sees the corrupt chunk.
+            clean_buf = io.BytesIO()
+            pil_img.save(clean_buf, format="JPEG", quality=95)
+            clean_bytes = clean_buf.getvalue()
         except Exception as e:
             fail(f"Image decode failed: {e}"); return
 
@@ -609,6 +644,8 @@ class BrainiacThumbnailInference:
             roi_data = [r for r in roi_data if r["region_key"] in berg_keys]
             roi_data.sort(key=lambda x: x["activation"], reverse=True)
         else:
+            if self.berg_load_error:
+                fail(f"BERG load error: {self.berg_load_error}"); return
             try:
                 roi_data, mean_top_roi_score = self._run_berg(img_rgb)
             except Exception as e:
@@ -616,7 +653,7 @@ class BrainiacThumbnailInference:
 
         # ── Heatmap ───────────────────────────────────────────────────────────
         try:
-            heatmap_bytes = generate_heatmap(image_bytes, roi_data)
+            heatmap_bytes = generate_heatmap(clean_bytes, roi_data)
         except Exception as e:
             fail(f"Heatmap generation failed: {e}"); return
 
