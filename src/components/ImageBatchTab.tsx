@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { Upload, X, Square } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
+import { supabase } from '@/lib/supabase'
 
 interface ImageCard {
   id: string
@@ -66,15 +67,27 @@ export function ImageBatchTab({ token }: Props) {
     setAnalyzing(false)
   }
 
-  function pollOne(analysisId: string, cardId: string): Promise<void> {
+  function pollOne(analysisId: string, cardId: string, tok: string): Promise<void> {
     return new Promise(resolve => {
       const iv = setInterval(async () => {
         if (stoppedRef.current) { clearInterval(iv); resolve(); return }
 
         const res = await fetch(`/api/analyze/${analysisId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${tok}` },
         })
-        if (!res.ok) return
+
+        if (!res.ok) {
+          // Non-retryable — don't loop forever
+          if (res.status === 401 || res.status === 403 || res.status === 404) {
+            clearInterval(iv)
+            intervalsRef.current.delete(cardId)
+            setCards(prev => prev.map(c =>
+              c.id === cardId ? { ...c, status: 'failed', error: `Poll error: ${res.status}` } : c
+            ))
+            resolve()
+          }
+          return
+        }
 
         const data: AnalysisResult = await res.json()
         if (data.status !== 'complete' && data.status !== 'failed') return
@@ -101,6 +114,10 @@ export function ImageBatchTab({ token }: Props) {
     setRoiAverages(null)
     setAiSummary(null)
 
+    // Refresh the session token before starting — stored token may have expired
+    const { data: { session } } = await supabase.auth.getSession()
+    const freshToken = session?.access_token ?? token
+
     const dispatched = await Promise.all(
       cardsRef.current.map(async card => {
         setCards(prev => prev.map(c => c.id === card.id ? { ...c, status: 'uploading' } : c))
@@ -111,7 +128,7 @@ export function ImageBatchTab({ token }: Props) {
         try {
           const res = await fetch('/api/analyze/thumbnail', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${freshToken}` },
             body: form,
           })
           const data = await res.json()
@@ -135,7 +152,7 @@ export function ImageBatchTab({ token }: Props) {
     )
 
     const valid = dispatched.filter((d): d is { cardId: string; analysisId: string } => d !== null)
-    await Promise.all(valid.map(({ analysisId, cardId }) => pollOne(analysisId, cardId)))
+    await Promise.all(valid.map(({ analysisId, cardId }) => pollOne(analysisId, cardId, freshToken)))
 
     if (stoppedRef.current) return
     setAnalyzing(false)
@@ -169,7 +186,7 @@ export function ImageBatchTab({ token }: Props) {
     try {
       const res = await fetch('/api/analyze/image-summary', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
         body: JSON.stringify({ roi_averages: averages, image_count: completed.length }),
       })
       const data = await res.json()
