@@ -1,31 +1,149 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+/* ── Openberg design tokens ────────────────────────────────────────────── */
+:root {
+  --ink:          #000000;
+  --ink-soft:     #0a0a0a;
+  --paper:        #f4f1ea;
+  --paper-pure:   #ffffff;
+
+  --graphite-9:   #141414;
+  --graphite-8:   #1a1a1a;
+  --graphite-7:   #242424;
+  --graphite-6:   #333333;
+  --graphite-5:   #4d4d4d;
+  --graphite-4:   #6e6e6e;
+  --graphite-3:   #8f8f8f;
+  --graphite-2:   #b3b3b3;
+  --graphite-1:   #d0d0d0;
+
+  --accent:       #ff5900;
+  --accent-dim:   #b33e00;
+  --ok:           #4cc27a;
+  --alarm:        #e0392f;
+  --rule:         #2a2a2a;
+  --rule-bright:  #444444;
+
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 }
 
+/* ── Tailwind theme overrides ──────────────────────────────────────────── */
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* Remap indigo → accent orange so all existing indigo-* classes go orange */
+  --color-indigo-300: #ff9966;
+  --color-indigo-400: #ff7733;
+  --color-indigo-500: #ff6600;
+  --color-indigo-600: #ff5900;
+  --color-indigo-700: #cc4700;
+
+  /* Remap gray to openberg graphite */
+  --color-gray-950: var(--ink);
+  --color-gray-900: var(--graphite-9);
+  --color-gray-800: var(--graphite-8);
+  --color-gray-700: var(--graphite-7);
+  --color-gray-600: var(--graphite-6);
+  --color-gray-500: var(--graphite-5);
+  --color-gray-400: var(--graphite-4);
+  --color-gray-300: var(--graphite-3);
+  --color-gray-200: var(--graphite-2);
+  --color-gray-100: var(--graphite-1);
+}
+
+/* ── Global resets ─────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after {
     box-sizing: border-box;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-size: 13px;
   }
 
   body {
-    background-color: #030712;
-    color: #f9fafb;
+    background-color: var(--ink);
+    color: var(--paper);
+    font-family: var(--font-sans);
+    line-height: 1.5;
   }
 
   ::selection {
-    background-color: #4f46e5;
-    color: #fff;
+    background-color: var(--accent);
+    color: var(--ink);
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #111827; }
-  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+  ::-webkit-scrollbar-track { background: var(--ink); }
+  ::-webkit-scrollbar-thumb { background: var(--graphite-6); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--graphite-5); }
+
+  input, textarea, select {
+    font-family: var(--font-mono);
+    background: var(--ink);
+    color: var(--paper);
+    border: 1px solid var(--rule);
+  }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+}
+
+/* ── Openberg utility classes ──────────────────────────────────────────── */
+@layer utilities {
+  .t-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--graphite-3);
+  }
+
+  .t-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--paper);
+  }
+
+  .panel {
+    background: var(--ink);
+    border: 1px solid var(--rule);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .panel-label {
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--paper);
+    border-right: 1px solid var(--rule);
+  }
+
+  .panel-meta {
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--graphite-3);
+    margin-left: auto;
+  }
 }

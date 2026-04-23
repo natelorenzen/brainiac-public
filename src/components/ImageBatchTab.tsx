@@ -6,6 +6,19 @@ import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { supabase } from '@/lib/supabase'
 
+function RichLine({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith('**') && p.endsWith('**')
+          ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  )
+}
+
 interface ImageCard {
   id: string
   file: File
@@ -347,29 +360,35 @@ export function ImageBatchTab({ token }: Props) {
 
       {/* AI suggestions */}
       {(aiLoading || aiSummary) && (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-3">
-          <h3 className="text-sm font-semibold text-white">Design Suggestions</h3>
-          {aiLoading ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
-              Generating suggestions…
-            </div>
-          ) : aiSummary ? (
-            <div className="text-sm text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none">
-              {aiSummary.split('\n').map((line, i) => {
-                const bullet = line.match(/^[-*]\s+(.+)/)
-                if (bullet) {
-                  return (
-                    <div key={i} className="flex gap-2 py-1">
-                      <span className="text-indigo-400 mt-0.5 shrink-0">•</span>
-                      <span>{bullet[1]}</span>
-                    </div>
-                  )
-                }
-                return line.trim() ? <p key={i} className="py-0.5">{line}</p> : null
-              })}
-            </div>
-          ) : null}
+        <div className="panel">
+          <div className="panel-header">
+            <span className="panel-label">Design Suggestions</span>
+            <span className="panel-meta">BERG · batch analysis</span>
+          </div>
+          <div className="p-5">
+            {aiLoading ? (
+              <div className="flex items-center gap-3 t-meta">
+                <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
+                Generating recommendations…
+              </div>
+            ) : aiSummary ? (
+              <div className="space-y-3">
+                {aiSummary.split('\n').map((line, i) => {
+                  const bullet = line.match(/^[-*]\s+(.+)/)
+                  if (bullet) {
+                    return (
+                      <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
+                        <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
+                        <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
+                      </div>
+                    )
+                  }
+                  if (line.startsWith('#')) return null
+                  return line.trim() ? <p key={i} className="t-meta pb-2">{line}</p> : null
+                })}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -436,10 +455,11 @@ export function ImageBatchTab({ token }: Props) {
                         const bullet = line.match(/^[-*]\s+(.+)/)
                         if (bullet) return (
                           <div key={i} className="flex gap-2">
-                            <span className="text-indigo-400 shrink-0">•</span>
-                            <span>{bullet[1]}</span>
+                            <span className="text-indigo-400 shrink-0">—</span>
+                            <span><RichLine text={bullet[1]} /></span>
                           </div>
                         )
+                        if (line.startsWith('#')) return null
                         return line.trim() ? <p key={i}>{line}</p> : null
                       })}
                     </div>
