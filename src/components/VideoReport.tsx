@@ -97,7 +97,7 @@ function computeDipZones(roiData: ROIRegionWithTemporal[]): DipZone[] {
 
 // ── Temporal chart ────────────────────────────────────────────────────────────
 
-function ChartTick({ x, y, payload, textAnchor = 'middle' }: { x?: number; y?: number; payload?: { value: number }; textAnchor?: string }) {
+function ChartTick({ x, y, payload, textAnchor = 'middle' }: { x?: number; y?: number; payload?: { value: number }; textAnchor?: 'middle' | 'end' | 'start' | 'inherit' }) {
   if (!payload) return null
   return (
     <text x={x} y={y} dy={textAnchor === 'end' ? 4 : 12} textAnchor={textAnchor} style={{ fill: 'var(--graphite-4)', fontSize: 10 }}>
