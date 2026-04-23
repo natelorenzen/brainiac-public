@@ -209,3 +209,12 @@
     border-color: var(--accent);
   }
 }
+
+/* ── Recharts overrides — ensure chart text uses theme vars ─────────────── */
+.recharts-cartesian-axis-tick-value {
+  fill: var(--graphite-4) !important;
+}
+
+.recharts-yAxis .recharts-cartesian-axis-tick-value {
+  fill: var(--paper) !important;
+}

@@ -330,18 +330,18 @@ function FindingsPanel({ roiData }: { roiData: ROIRegionWithTemporal[] }) {
             <div className="flex-1 space-y-0.5">
               <p className={[
                 'font-medium leading-snug',
-                f.status === 'ok'   ? 'text-emerald-300' :
-                f.status === 'warn' ? 'text-amber-300'   :
-                                      'text-indigo-300',
+                f.status === 'ok'   ? 'text-emerald-600' :
+                f.status === 'warn' ? 'text-amber-600'   :
+                                      'text-indigo-500',
               ].join(' ')}>{f.headline}</p>
               <p className="text-gray-300 leading-snug">{f.detail}</p>
             </div>
             {/* Status icon */}
             <span className={[
               'shrink-0 font-bold text-base leading-none',
-              f.status === 'ok'   ? 'text-emerald-500' :
-              f.status === 'warn' ? 'text-amber-400'   :
-                                    'text-indigo-400',
+              f.status === 'ok'   ? 'text-emerald-600' :
+              f.status === 'warn' ? 'text-amber-600'   :
+                                    'text-indigo-500',
             ].join(' ')}>
               {f.status === 'ok' ? '✓' : f.status === 'warn' ? '!' : '→'}
             </span>
