@@ -15,6 +15,24 @@ interface Props {
   roiData: ROIRegion[]
 }
 
+function XTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: number } }) {
+  if (!payload) return null
+  return (
+    <text x={x} y={y} dy={12} textAnchor="middle" style={{ fill: 'var(--graphite-4)', fontSize: 11 }}>
+      {payload.value}
+    </text>
+  )
+}
+
+function YTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) {
+  if (!payload) return null
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" style={{ fill: 'var(--paper)', fontSize: 12 }}>
+      {payload.value}
+    </text>
+  )
+}
+
 function CustomTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null
   const d = payload[0].payload as ROIRegion
@@ -43,7 +61,7 @@ export function ROIBarChart({ roiData }: Props) {
           <XAxis
             type="number"
             domain={[0, 1]}
-            tick={{ fill: 'var(--graphite-4)', fontSize: 11 }}
+            tick={<XTick />}
             tickLine={false}
             axisLine={false}
           />
@@ -51,7 +69,7 @@ export function ROIBarChart({ roiData }: Props) {
             type="category"
             dataKey="label"
             width={135}
-            tick={{ fill: 'var(--paper)', fontSize: 12 }}
+            tick={<YTick />}
             tickLine={false}
             axisLine={false}
           />

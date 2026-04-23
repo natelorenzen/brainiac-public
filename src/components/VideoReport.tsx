@@ -97,6 +97,15 @@ function computeDipZones(roiData: ROIRegionWithTemporal[]): DipZone[] {
 
 // ── Temporal chart ────────────────────────────────────────────────────────────
 
+function ChartTick({ x, y, payload, textAnchor = 'middle' }: { x?: number; y?: number; payload?: { value: number }; textAnchor?: string }) {
+  if (!payload) return null
+  return (
+    <text x={x} y={y} dy={textAnchor === 'end' ? 4 : 12} textAnchor={textAnchor} style={{ fill: 'var(--graphite-4)', fontSize: 10 }}>
+      {payload.value}
+    </text>
+  )
+}
+
 function TemporalChart({ roiData, dipZones }: { roiData: ROIRegionWithTemporal[]; dipZones: DipZone[] }) {
   const topRois = roiData
     .filter(r => r.temporal_activations && r.temporal_activations.length > 0)
@@ -123,13 +132,13 @@ function TemporalChart({ roiData, dipZones }: { roiData: ROIRegionWithTemporal[]
         <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <XAxis
             dataKey="t"
-            tick={{ fill: 'var(--graphite-4)', fontSize: 10 }}
+            tick={<ChartTick />}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
             domain={[0, 1]}
-            tick={{ fill: 'var(--graphite-4)', fontSize: 10 }}
+            tick={<ChartTick textAnchor="end" />}
             tickLine={false}
             axisLine={false}
             width={28}
