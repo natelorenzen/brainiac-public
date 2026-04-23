@@ -625,7 +625,7 @@ class BrainiacThumbnailInference:
                 delta = max(0.0, baseline - self._run_berg_raw_mean(masked))
                 importance[r0:r1, c0:c1] = delta
 
-        importance = gaussian_filter(importance, sigma=224 * 0.06)
+        importance = gaussian_filter(importance, sigma=224 * 0.18)
         mn, mx = importance.min(), importance.max()
         importance = (importance - mn) / (mx - mn + 1e-8)
 
