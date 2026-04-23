@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   const remaining = Math.min(
     getRemainingDaily(profile?.daily_count ?? 0),
     getRemainingMonthly(profile?.monthly_count ?? 0),
-    25
+    15
   )
 
   if (remaining === 0) {

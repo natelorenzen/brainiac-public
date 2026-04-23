@@ -27,6 +27,8 @@ export function ImageBatchTab({ token }: Props) {
   const [roiAverages, setRoiAverages] = useState<ROIAverage[] | null>(null)
   const [aiSummary, setAiSummary] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const [cardSuggestions, setCardSuggestions] = useState<Record<string, string>>({})
+  const [cardSuggestionsLoading, setCardSuggestionsLoading] = useState<Record<string, boolean>>({})
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -34,7 +36,7 @@ export function ImageBatchTab({ token }: Props) {
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).slice(0, 25)
+    const files = Array.from(e.target.files ?? []).slice(0, 15)
     const next: ImageCard[] = files.map(file => ({
       id: `${file.name}-${file.size}-${file.lastModified}`,
       file,
@@ -195,6 +197,23 @@ export function ImageBatchTab({ token }: Props) {
     setAiLoading(false)
   }
 
+  async function handleCardClick(card: ImageCard) {
+    setSelectedCard(card)
+    if (!card.result?.roi_data || cardSuggestions[card.id] || cardSuggestionsLoading[card.id]) return
+    setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: true }))
+    try {
+      const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+      const res = await fetch('/api/analyze/image-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+        body: JSON.stringify({ roi_averages: card.result.roi_data, image_count: 1 }),
+      })
+      const data = await res.json()
+      if (data.summary) setCardSuggestions(prev => ({ ...prev, [card.id]: data.summary }))
+    } catch { /* non-fatal */ }
+    setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: false }))
+  }
+
   const doneCount = cards.filter(c => c.status === 'complete' || c.status === 'failed').length
   const processingCard = cards.find(c => c.status === 'processing' || c.status === 'uploading')
 
@@ -205,7 +224,7 @@ export function ImageBatchTab({ token }: Props) {
         <label className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-700 rounded-xl p-12 cursor-pointer hover:border-indigo-600 transition-colors">
           <Upload className="w-8 h-8 text-gray-500" />
           <div className="text-center">
-            <p className="text-sm text-gray-300">Upload up to 25 thumbnail images</p>
+            <p className="text-sm text-gray-300">Upload up to 15 thumbnail images</p>
             <p className="text-xs text-gray-600 mt-1">JPEG, PNG, WebP · max 10 MB each</p>
           </div>
           <input
@@ -286,7 +305,7 @@ export function ImageBatchTab({ token }: Props) {
             <ImageResultCard
               key={card.id}
               card={card}
-              onClick={card.status === 'complete' ? () => setSelectedCard(card) : undefined}
+              onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
           ))}
         </div>
@@ -363,7 +382,7 @@ export function ImageBatchTab({ token }: Props) {
           onClick={() => setSelectedCard(null)}
         >
           <div
-            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             <div className="relative aspect-video bg-gray-800">
@@ -384,7 +403,7 @@ export function ImageBatchTab({ token }: Props) {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 overflow-y-auto">
               <p className="text-sm font-medium text-white truncate">{selectedCard.file.name}</p>
               {selectedCard.result?.roi_data && (
                 <div className="space-y-2">
@@ -401,6 +420,30 @@ export function ImageBatchTab({ token }: Props) {
                       <p className="text-[10px] text-gray-600">{roi.description}</p>
                     </div>
                   ))}
+                </div>
+              )}
+              {(cardSuggestionsLoading[selectedCard.id] || cardSuggestions[selectedCard.id]) && (
+                <div className="space-y-2 border-t border-gray-800 pt-4">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Improvement Suggestions</p>
+                  {cardSuggestionsLoading[selectedCard.id] ? (
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
+                      Analyzing…
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
+                      {cardSuggestions[selectedCard.id].split('\n').map((line, i) => {
+                        const bullet = line.match(/^[-*]\s+(.+)/)
+                        if (bullet) return (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-indigo-400 shrink-0">•</span>
+                            <span>{bullet[1]}</span>
+                          </div>
+                        )
+                        return line.trim() ? <p key={i}>{line}</p> : null
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

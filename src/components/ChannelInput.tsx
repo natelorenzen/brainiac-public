@@ -34,7 +34,7 @@ export function ChannelInput({ onSubmit, disabled }: Props) {
       </div>
 
       <p className="text-xs text-gray-600">
-        Analyzes the most recent 25 videos. Counts as 25 analyses toward your limits.
+        Analyzes the most recent 15 videos. Counts as 15 analyses toward your limits.
       </p>
 
       <button

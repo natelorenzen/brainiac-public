@@ -33,11 +33,26 @@ export async function POST(req: NextRequest) {
     .map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`)
     .join('\n')
 
-  const prompt = `You are interpreting BERG (Brain Encoding Response Generator) fMRI brain activation predictions for a set of ${image_count} thumbnail image${image_count > 1 ? 's' : ''}.
+  const isSingle = image_count === 1
+
+  const prompt = isSingle
+    ? `You are interpreting BERG (Brain Encoding Response Generator) fMRI brain activation predictions for a single thumbnail image.
 
 BERG predicts which visual cortex regions activate when a person views an image, based on models trained on the Natural Scenes Dataset (NSD). Scores are normalized 0–1; higher means stronger predicted activation.
 
-Average activation across all ${image_count} image${image_count > 1 ? 's' : ''}:
+Brain activation scores for this image:
+${scoreLines}
+
+The highest-scoring regions reveal what this image is driving visually. The lowest-scoring regions reveal what is underutilized.
+
+Give 3–4 specific, actionable suggestions to improve this thumbnail's visual impact based on these exact scores. Reference the specific regions by name (e.g. "Your low FFA score suggests…"). Do not guarantee outcomes or claim direct causation with engagement.
+
+Format as a markdown bulleted list. Each bullet should be one to two sentences.`
+    : `You are interpreting BERG (Brain Encoding Response Generator) fMRI brain activation predictions for a set of ${image_count} thumbnail images.
+
+BERG predicts which visual cortex regions activate when a person views an image, based on models trained on the Natural Scenes Dataset (NSD). Scores are normalized 0–1; higher means stronger predicted activation.
+
+Average activation across all ${image_count} images:
 ${scoreLines}
 
 Based on these brain activation patterns, give 4–5 concise, specific, actionable design suggestions for improving these thumbnails. Focus on what the scores reveal about visual attention and cognitive processing. Do not guarantee performance outcomes or claim direct causation with viewer engagement.

@@ -468,7 +468,7 @@ def download_berg_weights():
 @app.cls(
     image=berg_image,
     volumes={"/cache/berg": berg_volume},
-    timeout=120,
+    timeout=300,
     secrets=[modal.Secret.from_name("brainiac-supabase")],
 )
 class BrainiacThumbnailInference:
@@ -578,6 +578,66 @@ class BrainiacThumbnailInference:
         mean_top = round(float(np.mean([r["activation"] for r in results[:3]])), 4)
         return results, mean_top
 
+    def _run_berg_raw_mean(self, arr_224) -> float:
+        """Run BERG on a 224×224 uint8 array. Returns mean raw activation across all models."""
+        import numpy as np
+        batch = arr_224.transpose(2, 0, 1)[np.newaxis, ...].astype(np.uint8)
+        vals = []
+        for model in self.berg_models.values():
+            resp = self.berg.encode(model, batch)
+            vals.append(float(np.mean(resp[0])))
+        return float(np.mean(vals)) if vals else 0.0
+
+    def _ablation_heatmap(self, img_rgb) -> bytes:
+        """
+        10-patch ablation heatmap (2 rows × 5 cols).
+        Masks each patch with mean fill, measures BERG score drop vs baseline.
+        Produces a spatially meaningful heatmap unique to this image.
+        """
+        import numpy as np
+        import matplotlib.cm as cm
+        from PIL import Image as PILImage
+        from scipy.ndimage import gaussian_filter
+
+        # Preprocess to 224×224 (same pipeline as _run_berg)
+        h, w = img_rgb.shape[:2]
+        side = min(h, w)
+        top = (h - side) // 2
+        left = (w - side) // 2
+        cropped = img_rgb[top:top+side, left:left+side]
+        pil_224 = PILImage.fromarray(cropped).resize((224, 224), PILImage.LANCZOS)
+        arr_224 = np.array(pil_224, dtype=np.uint8)
+
+        fill = int(arr_224.mean())
+        baseline = self._run_berg_raw_mean(arr_224)
+
+        n_rows, n_cols = 2, 5
+        importance = np.zeros((224, 224), dtype=np.float32)
+
+        for r in range(n_rows):
+            for c in range(n_cols):
+                r0 = r * (224 // n_rows)
+                r1 = (r + 1) * (224 // n_rows) if r < n_rows - 1 else 224
+                c0 = c * (224 // n_cols)
+                c1 = (c + 1) * (224 // n_cols) if c < n_cols - 1 else 224
+                masked = arr_224.copy()
+                masked[r0:r1, c0:c1] = fill
+                delta = max(0.0, baseline - self._run_berg_raw_mean(masked))
+                importance[r0:r1, c0:c1] = delta
+
+        importance = gaussian_filter(importance, sigma=224 * 0.06)
+        mn, mx = importance.min(), importance.max()
+        importance = (importance - mn) / (mx - mn + 1e-8)
+
+        colormap = cm.get_cmap("viridis")
+        heatmap_rgb = (colormap(importance)[:, :, :3] * 255).astype(np.float32)
+        img_float = np.array(pil_224, dtype=np.float32)
+        blended = (img_float * 0.50 + heatmap_rgb * 0.50).clip(0, 255).astype(np.uint8)
+
+        out = io.BytesIO()
+        PILImage.fromarray(blended).save(out, format="PNG", optimize=True)
+        return out.getvalue()
+
     def _process(self, body: dict) -> None:
         """
         Background thread: download thumbnail → BERG inference → heatmap → Supabase.
@@ -653,7 +713,10 @@ class BrainiacThumbnailInference:
 
         # ── Heatmap ───────────────────────────────────────────────────────────
         try:
-            heatmap_bytes = generate_heatmap(clean_bytes, roi_data)
+            if self.mock_mode:
+                heatmap_bytes = generate_heatmap(clean_bytes, roi_data)
+            else:
+                heatmap_bytes = self._ablation_heatmap(img_rgb)
         except Exception as e:
             fail(f"Heatmap generation failed: {e}"); return
 
@@ -704,7 +767,8 @@ class BrainiacThumbnailInference:
 @app.cls(
     image=image,
     volumes={"/cache": model_volume},
-    timeout=600,
+    timeout=1800,
+    scaledown_window=1800,
     gpu="L4",
     secrets=[
         modal.Secret.from_name("brainiac-supabase"),
@@ -744,11 +808,11 @@ class BrainiacInference:
             self.model = None
             print("MOCK_MODE=true — skipping TRIBE model load.")
 
-    @modal.fastapi_endpoint(method="POST", label="brainiac-inference")
-    def run_inference(self, body: dict) -> dict:
+    def _process(self, body: dict) -> None:
         """
-        Web endpoint called by Next.js API routes.
-        Body: { analysis_id, storage_key, supabase_url }
+        Internal worker — runs the full inference pipeline and writes results
+        to Supabase directly. Called from a daemon thread so the HTTP endpoint
+        can return immediately and Vercel's function lifespan doesn't bound us.
         """
         import numpy as np
         import cv2
@@ -881,13 +945,7 @@ class BrainiacInference:
                 "mean_top_roi_score": mean_top_roi_score,
                 "completed_at": datetime.datetime.utcnow().isoformat(),
             }).eq("id", analysis_id).execute()
-
-            return {
-                "status": "complete",
-                "analysis_id": analysis_id,
-                "mean_top_roi_score": mean_top_roi_score,
-                "mock": self.mock_mode,
-            }
+            return
 
         # ── IMAGE PATH (thumbnails) ───────────────────────────────────────────
         if thumbnail_url:
@@ -992,9 +1050,22 @@ class BrainiacInference:
             "completed_at": datetime.datetime.utcnow().isoformat(),
         }).eq("id", analysis_id).execute()
 
-        return {
-            "status": "complete",
-            "analysis_id": analysis_id,
-            "mean_top_roi_score": mean_top_roi_score,
-            "mock": self.mock_mode,
-        }
+    @modal.fastapi_endpoint(method="POST", label="brainiac-inference")
+    def run_inference(self, body: dict) -> dict:
+        """
+        Fire-and-forget endpoint. Returns {"status": "queued"} immediately so
+        Vercel's function lifespan never bounds the inference. Actual work
+        runs in a daemon thread and writes results to Supabase directly.
+        Body: { analysis_id, supabase_url, storage_key, content_type } for
+        videos, or { analysis_id, supabase_url, thumbnail_url | storage_key }
+        for image fallback.
+        """
+        import threading
+
+        analysis_id: str = body.get("analysis_id", "unknown")
+        if not body.get("analysis_id"):
+            return {"status": "error", "error": "analysis_id required"}
+
+        thread = threading.Thread(target=self._process, args=(body,), daemon=True)
+        thread.start()
+        return {"status": "queued", "analysis_id": analysis_id}
