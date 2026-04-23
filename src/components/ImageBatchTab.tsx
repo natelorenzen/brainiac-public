@@ -183,17 +183,36 @@ export function ImageBatchTab({ token }: Props) {
 
     setRoiAverages(averages)
 
-    // Fetch AI suggestions
+    // Fetch batch summary + per-image suggestions in parallel
     setAiLoading(true)
-    try {
-      const res = await fetch('/api/analyze/image-summary', {
+    completed.forEach(c =>
+      setCardSuggestionsLoading(prev => ({ ...prev, [c.id]: true }))
+    )
+
+    await Promise.all([
+      // Batch summary
+      fetch('/api/analyze/image-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
         body: JSON.stringify({ roi_averages: averages, image_count: completed.length }),
-      })
-      const data = await res.json()
-      setAiSummary(data.summary ?? null)
-    } catch { /* non-fatal */ }
+      }).then(r => r.json()).then(d => setAiSummary(d.summary ?? null)).catch(() => {}),
+
+      // Per-image suggestions
+      ...completed.map(card =>
+        fetch('/api/analyze/image-summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+          body: JSON.stringify({ roi_averages: card.result!.roi_data, image_count: 1 }),
+        })
+          .then(r => r.json())
+          .then(d => {
+            if (d.summary) setCardSuggestions(prev => ({ ...prev, [card.id]: d.summary }))
+          })
+          .catch(() => {})
+          .finally(() => setCardSuggestionsLoading(prev => ({ ...prev, [card.id]: false })))
+      ),
+    ])
+
     setAiLoading(false)
   }
 
@@ -370,6 +389,52 @@ export function ImageBatchTab({ token }: Props) {
               })}
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* Per-image recommendations */}
+      {cards.some(c => c.status === 'complete') && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-white">Image Recommendations</h3>
+          {cards.filter(c => c.status === 'complete').map(card => (
+            <div key={card.id} className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+              <div className="flex items-center gap-3 p-3 border-b border-gray-800">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={card.previewUrl} alt={card.file.name} className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-white truncate">{card.file.name}</p>
+                  {card.result?.roi_data?.[0] && (
+                    <p className="text-[10px] text-indigo-400 mt-0.5">
+                      Top signal: {card.result.roi_data[0].label}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="p-3">
+                {cardSuggestionsLoading[card.id] ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-500 py-1">
+                    <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin shrink-0" />
+                    Analyzing…
+                  </div>
+                ) : cardSuggestions[card.id] ? (
+                  <div className="text-xs text-gray-300 leading-relaxed space-y-1.5">
+                    {cardSuggestions[card.id].split('\n').map((line, i) => {
+                      const bullet = line.match(/^[-*]\s+(.+)/)
+                      if (bullet) return (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-indigo-400 shrink-0 mt-0.5">•</span>
+                          <span>{bullet[1]}</span>
+                        </div>
+                      )
+                      return line.trim() ? <p key={i}>{line}</p> : null
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-600">No suggestions available.</p>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
