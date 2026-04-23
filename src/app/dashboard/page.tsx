@@ -464,6 +464,7 @@ export default function DashboardPage() {
               correlations={correlations}
               channelHandle={channelHandle}
               videoCount={cards.filter(c => c.status === 'complete').length}
+              token={token ?? ''}
             />
           </div>
         )}

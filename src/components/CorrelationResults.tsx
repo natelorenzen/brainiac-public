@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import {
   ScatterChart,
   Scatter,
@@ -16,6 +17,20 @@ interface Props {
   correlations: CorrelationEntry[]
   channelHandle: string
   videoCount: number
+  token: string
+}
+
+function RichLine({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith('**') && p.endsWith('**')
+          ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  )
 }
 
 function rColor(r: number): string {
@@ -30,8 +45,34 @@ function rLabel(r: number): string {
   return `${strength} ${dir}`
 }
 
-export function CorrelationResults({ correlations, channelHandle, videoCount }: Props) {
+export function CorrelationResults({ correlations, channelHandle, videoCount, token }: Props) {
   const top = correlations[0]
+  const [summary, setSummary] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!correlations.length || !token) return
+    setLoading(true)
+    fetch('/api/analyze/image-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        context: 'channel',
+        channel_handle: channelHandle,
+        video_count: videoCount,
+        correlations: correlations.map(c => ({
+          region_key: c.region_key,
+          label: c.label,
+          description: c.description,
+          r: c.r,
+        })),
+      }),
+    })
+      .then(r => r.json())
+      .then(d => setSummary(d.summary ?? null))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-6">
@@ -176,6 +217,38 @@ export function CorrelationResults({ correlations, channelHandle, videoCount }: 
           )}
         </div>
       )}
+
+      {/* Thumbnail suggestions */}
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-label">Thumbnail Recommendations</span>
+          <span className="panel-meta">BERG · @{channelHandle} · {videoCount} videos</span>
+        </div>
+        <div className="p-5">
+          {loading ? (
+            <div className="flex items-center gap-3 t-meta">
+              <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
+              Generating recommendations…
+            </div>
+          ) : summary ? (
+            <div className="space-y-3">
+              {summary.split('\n').map((line, i) => {
+                const bullet = line.match(/^[-*]\s+(.+)/)
+                if (bullet) return (
+                  <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
+                    <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
+                    <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
+                  </div>
+                )
+                if (line.startsWith('#')) return null
+                return line.trim() ? <p key={i} className="t-meta pb-1">{line}</p> : null
+              })}
+            </div>
+          ) : (
+            <p className="t-meta">No suggestions available.</p>
+          )}
+        </div>
+      </div>
 
       <AttributionFooter />
     </div>

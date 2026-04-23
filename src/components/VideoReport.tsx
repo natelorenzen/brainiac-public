@@ -1,6 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+
+function RichLine({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/)
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.startsWith('**') && p.endsWith('**')
+          ? <strong key={i} className="text-white font-semibold">{p.slice(2, -2)}</strong>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  )
+}
 import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceArea, ResponsiveContainer, type TooltipProps } from 'recharts'
 import { HeatmapPanel } from '@/components/HeatmapPanel'
 import { ROIBarChart } from '@/components/ROIBarChart'
@@ -375,6 +388,8 @@ function RegionReference() {
 export function VideoReport({ analysisId, token, onReset }: Props) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [status, setStatus] = useState<'polling' | 'complete' | 'failed'>('polling')
+  const [summary, setSummary] = useState<string | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -388,6 +403,18 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
         clearInterval(pollRef.current!)
         setResult(data)
         setStatus(data.status === 'complete' ? 'complete' : 'failed')
+        if (data.status === 'complete' && data.roi_data?.length) {
+          setSummaryLoading(true)
+          fetch('/api/analyze/image-summary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ context: 'video', roi_data: data.roi_data }),
+          })
+            .then(r => r.json())
+            .then(d => setSummary(d.summary ?? null))
+            .catch(() => {})
+            .finally(() => setSummaryLoading(false))
+        }
       }
     }, 10000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
@@ -446,6 +473,36 @@ export function VideoReport({ analysisId, token, onReset }: Props) {
 
       {/* 5. Region reference (collapsed by default) */}
       <RegionReference />
+
+      {/* 6. AI suggestions */}
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-label">Video Recommendations</span>
+          <span className="panel-meta">TRIBE v2 · brain activation analysis</span>
+        </div>
+        <div className="p-5">
+          {summaryLoading ? (
+            <div className="flex items-center gap-3 t-meta">
+              <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
+              Generating recommendations…
+            </div>
+          ) : summary ? (
+            <div className="space-y-3">
+              {summary.split('\n').map((line, i) => {
+                const bullet = line.match(/^[-*]\s+(.+)/)
+                if (bullet) return (
+                  <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
+                    <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
+                    <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
+                  </div>
+                )
+                if (line.startsWith('#')) return null
+                return line.trim() ? <p key={i} className="t-meta pb-1">{line}</p> : null
+              })}
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       <AttributionFooter />
     </div>
