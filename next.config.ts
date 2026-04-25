@@ -3,7 +3,7 @@ import type { NextConfig } from 'next'
 const config: NextConfig = {
   serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
   outputFileTracingIncludes: {
-    '/api/analyze/webpage': ['./node_modules/@sparticuz/chromium/**/*'],
+    '/api/analyze/webpage/capture': ['./node_modules/@sparticuz/chromium/**/*'],
   },
   images: {
     remotePatterns: [
