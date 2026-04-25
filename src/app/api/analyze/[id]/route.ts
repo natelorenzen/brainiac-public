@@ -28,6 +28,14 @@ export async function GET(
     return NextResponse.json({ error: 'Analysis not found' }, { status: 404 })
   }
 
+  // Return a signed screenshot URL if one was uploaded (webpage analyzer)
+  let screenshot_url: string | null = null
+  if (analysis.input_storage_key) {
+    const { data: signed } = await supabaseServer.storage
+      .from('creatives').createSignedUrl(analysis.input_storage_key, 3600)
+    screenshot_url = signed?.signedUrl ?? null
+  }
+
   return NextResponse.json({
     analysis_id: analysis.id,
     status: analysis.status,
@@ -35,6 +43,7 @@ export async function GET(
     roi_data: analysis.roi_data ?? null,
     mean_top_roi_score: analysis.mean_top_roi_score ?? null,
     error_message: analysis.error_message ?? null,
+    screenshot_url,
     attribution: ATTRIBUTION,
   })
 }
