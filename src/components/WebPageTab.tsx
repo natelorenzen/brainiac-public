@@ -326,8 +326,8 @@ export function WebPageTab({ token }: Props) {
             )}
           </div>
 
-          {/* Side-by-side panels */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Stacked panels — desktop first, mobile second */}
+          <div className="space-y-16">
             {desktop && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
