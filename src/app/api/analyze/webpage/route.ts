@@ -6,7 +6,6 @@ import { dispatchThumbnailJob, ATTRIBUTION } from '@/lib/inference'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-// Blocked IP ranges for SSRF prevention
 const BLOCKED_PATTERNS = [
   /^localhost$/i,
   /^127\./,
@@ -20,12 +19,136 @@ const BLOCKED_PATTERNS = [
   /^fe80:/i,
 ]
 
+// CMP/consent script domains to block at the network level
+const BLOCKED_DOMAINS = [
+  'cdn.cookielaw.org',
+  'consent.cookiebot.com',
+  'cdn.consentmanager.net',
+  'js.cookieconsent.com',
+  'cdn.privacy-mgmt.com',
+  'cookie-script.com',
+  'cookiehub.com',
+  'usercentrics.eu',
+  'cookiepro.com',
+]
+
+// CSS injected after page load to hide remaining consent UIs and overlays
+const POPUP_HIDE_CSS = `
+  [id*="cookie"i], [class*="cookie"i],
+  [id*="consent"i], [class*="consent"i],
+  [id*="gdpr"i], [class*="gdpr"i],
+  [id*="popup"i], [class*="popup"i],
+  [id*="modal"i], [class*="modal"i],
+  [id*="newsletter"i], [class*="newsletter"i],
+  [id*="overlay"i], [class*="overlay"i],
+  [id*="notice"i][class*="notice"i],
+  [id*="banner"i][style*="position: fixed"i],
+  [class*="banner"i][style*="position: fixed"i],
+  [role="dialog"],
+  #onetrust-banner-sdk,
+  #onetrust-consent-sdk,
+  .onetrust-pc-dark-filter,
+  #CybotCookiebotDialog,
+  .cc-window,
+  .fc-dialog-container,
+  .sp-message-container,
+  .truste_overlay,
+  .didomi-popup-container,
+  #didomi-host,
+  .qc-cmp2-container {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  html, body { overflow: hidden !important; }
+`
+
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+
 function isSafeUrl(raw: string): boolean {
   let parsed: URL
   try { parsed = new URL(raw) } catch { return false }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  const host = parsed.hostname
-  return !BLOCKED_PATTERNS.some(p => p.test(host))
+  return !BLOCKED_PATTERNS.some(p => p.test(parsed.hostname))
+}
+
+async function captureViewport(
+  pageFactory: () => Promise<import('puppeteer-core').Page>,
+  width: number,
+  height: number,
+  mobile: boolean,
+  targetUrl: string,
+): Promise<Buffer> {
+  const page = await pageFactory()
+
+  // Block CMP scripts at network level
+  await page.setRequestInterception(true)
+  page.on('request', req => {
+    const hostname = (() => { try { return new URL(req.url()).hostname } catch { return '' } })()
+    if (BLOCKED_DOMAINS.some(d => hostname.includes(d))) {
+      req.abort()
+    } else {
+      req.continue()
+    }
+  })
+
+  // Auto-dismiss browser dialogs (alert, confirm, beforeunload)
+  page.on('dialog', d => d.dismiss())
+
+  await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile })
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+  if (mobile) await page.setUserAgent(MOBILE_UA)
+
+  try {
+    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 25000 })
+  } catch {
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 10000 })
+  }
+
+  // Hide any consent UI that loaded after network settled
+  await page.addStyleTag({ content: POPUP_HIDE_CSS }).catch(() => {})
+
+  // Brief settle for JS-rendered content / animations
+  await new Promise(r => setTimeout(r, 1200))
+
+  const raw = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width, height } })
+  await page.close()
+  return Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
+}
+
+async function uploadAndDispatch(
+  buf: Buffer,
+  userId: string,
+  thumbnailUrl: string,
+  label: string,
+): Promise<{ analysis_id: string; screenshot_url: string }> {
+  const { data: analysis, error: insertError } = await supabaseServer
+    .from('analyses')
+    .insert({ user_id: userId, type: 'thumbnail', status: 'queued', source: 'manual_upload' })
+    .select('id')
+    .single()
+
+  if (!analysis) throw new Error(`DB insert failed (${label}): ${insertError?.message}`)
+
+  const path = `${analysis.id}.png`
+  const { error: uploadError } = await supabaseServer.storage
+    .from('creatives')
+    .upload(path, buf, { contentType: 'image/png', upsert: false })
+  if (uploadError) throw new Error(`Upload failed (${label}): ${uploadError.message}`)
+
+  const { data: signed } = await supabaseServer.storage.from('creatives').createSignedUrl(path, 3600)
+  if (!signed?.signedUrl) throw new Error(`Signed URL failed (${label})`)
+
+  await supabaseServer.from('analyses').update({ status: 'processing' }).eq('id', analysis.id)
+
+  await dispatchThumbnailJob({
+    analysis_id: analysis.id,
+    thumbnail_url: signed.signedUrl,
+    supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  })
+
+  return { analysis_id: analysis.id, screenshot_url: signed.signedUrl }
 }
 
 export async function POST(req: NextRequest) {
@@ -40,6 +163,7 @@ export async function POST(req: NextRequest) {
   if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 })
   if (!isSafeUrl(url)) return NextResponse.json({ error: 'Invalid or disallowed URL' }, { status: 400 })
 
+  // Costs 2 analyses (desktop + mobile)
   const [userLimit, budgetLimit] = await Promise.all([
     checkUserLimits(user.id),
     checkGlobalBudget(),
@@ -53,100 +177,45 @@ export async function POST(req: NextRequest) {
     { status: 429 }
   )
 
-  // Take screenshot
-  // chromium-min downloads the binary to /tmp at cold-start (~15s once per instance)
-  // CHROMIUM_DOWNLOAD_URL can be overridden to a self-hosted binary for faster cold starts
   const CHROMIUM_URL =
     process.env.CHROMIUM_DOWNLOAD_URL ??
     'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar'
 
-  let screenshotBuffer: Buffer
+  let desktopBuf: Buffer, mobileBuf: Buffer
   try {
     const chromium = (await import('@sparticuz/chromium-min')).default
     const puppeteer = (await import('puppeteer-core')).default
 
     const browser = await puppeteer.launch({
       args: chromium.args,
-      defaultViewport: { width: 1280, height: 720 },
+      defaultViewport: null,
       executablePath: await chromium.executablePath(CHROMIUM_URL),
       headless: true,
     })
 
-    const page = await browser.newPage()
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+    const makeNewPage = () => browser.newPage();
 
-    try {
-      await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 })
-    } catch {
-      // Fallback: domcontentloaded is enough if networkidle2 times out
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 })
-    }
+    [desktopBuf, mobileBuf] = await Promise.all([
+      captureViewport(makeNewPage, 1280, 720, false, url),
+      captureViewport(makeNewPage, 390, 844, true, url),
+    ])
 
-    // Small settle delay for JS-rendered content
-    await new Promise(r => setTimeout(r, 1500))
-
-    const raw = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: 1280, height: 720 } })
     await browser.close()
-
-    screenshotBuffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
   } catch (err) {
     return NextResponse.json({ error: `Screenshot failed: ${String(err)}` }, { status: 502 })
   }
 
-  // Create analyses row
-  const { data: analysis, error: insertError } = await supabaseServer
-    .from('analyses')
-    .insert({
-      user_id: user.id,
-      type: 'thumbnail',
-      status: 'queued',
-      source: 'manual_upload',
-    })
-    .select('id')
-    .single()
-
-  if (!analysis) {
-    return NextResponse.json({ error: `DB insert failed: ${insertError?.message}` }, { status: 500 })
-  }
-
-  // Upload screenshot to creatives bucket
-  const storagePath = `${analysis.id}.png`
-  const { error: uploadError } = await supabaseServer.storage
-    .from('creatives')
-    .upload(storagePath, screenshotBuffer, { contentType: 'image/png', upsert: false })
-
-  if (uploadError) {
-    await supabaseServer.from('analyses').update({ status: 'failed', error_message: uploadError.message }).eq('id', analysis.id)
-    return NextResponse.json({ error: `Upload failed: ${uploadError.message}` }, { status: 500 })
-  }
-
-  // Signed URL for Modal to download (1 hour) and for client to display
-  const { data: signedData } = await supabaseServer.storage
-    .from('creatives')
-    .createSignedUrl(storagePath, 3600)
-
-  if (!signedData?.signedUrl) {
-    return NextResponse.json({ error: 'Could not create signed URL' }, { status: 500 })
-  }
-
-  await supabaseServer.from('analyses').update({ status: 'processing' }).eq('id', analysis.id)
-
+  let desktop, mobile
   try {
-    await dispatchThumbnailJob({
-      analysis_id: analysis.id,
-      thumbnail_url: signedData.signedUrl,
-      supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    })
+    ;[desktop, mobile] = await Promise.all([
+      uploadAndDispatch(desktopBuf, user.id, url, 'desktop'),
+      uploadAndDispatch(mobileBuf, user.id, url, 'mobile'),
+    ])
   } catch (err) {
-    await supabaseServer.from('analyses').update({ status: 'failed', error_message: String(err) }).eq('id', analysis.id)
-    return NextResponse.json({ error: `Modal dispatch failed: ${String(err)}` }, { status: 502 })
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 
-  await incrementUsage(user.id, 1)
+  await incrementUsage(user.id, 2)
 
-  return NextResponse.json({
-    analysis_id: analysis.id,
-    screenshot_url: signedData.signedUrl,
-    attribution: ATTRIBUTION,
-  })
+  return NextResponse.json({ desktop, mobile, attribution: ATTRIBUTION })
 }

@@ -64,26 +64,28 @@ Give 3–4 specific, actionable suggestions to improve this video's visual impac
 Format as a markdown bulleted list. Each bullet is one to two sentences.`
   }
 
-  // ── Landing page / webpage ───────────────────────────────────────────────
-  if (context === 'webpage') {
+  // ── Landing page — desktop & mobile ─────────────────────────────────────
+  if (context === 'webpage_desktop' || context === 'webpage_mobile') {
     const page_url = body.page_url as string
     const roi_data = body.roi_data as ROIAverage[]
+    const viewport = context === 'webpage_desktop' ? 'desktop (1280×720)' : 'mobile (390×844, iPhone UA)'
     const lines = roi_data
       .map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`)
       .join('\n')
 
-    return `You are interpreting BERG fMRI brain activation predictions for a landing page screenshot.
+    return `You are interpreting BERG fMRI brain activation predictions for a landing page screenshot captured on ${viewport}.
 
-BERG predicts which visual cortex regions activate when a person views the page above the fold (1280×720 viewport). Scores are normalized 0–1.
+BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1.
 
-Page analyzed: ${page_url}
+Page: ${page_url}
+Viewport: ${viewport}
 
 Brain activation scores:
 ${lines}
 
-Give 4–5 specific, actionable suggestions to improve this landing page's visual effectiveness. Ground each suggestion in the specific brain region scores (e.g. "Your FFA score of 0.12 is low — adding a human face near the headline will drive face-processing engagement"). Do not guarantee business outcomes.
+Give 4–5 specific, actionable design suggestions for the ${context === 'webpage_desktop' ? 'desktop' : 'mobile'} layout. Ground each suggestion in the specific region scores (e.g. "FFA score of 0.12 is low — add a human face near the headline"). Consider layout differences appropriate for ${context === 'webpage_desktop' ? 'desktop (wide viewport, mouse interaction)' : 'mobile (narrow viewport, thumb reach, smaller text)'}.
 
-Format as a markdown bulleted list. Each bullet is one to two sentences.`
+Format as a markdown bulleted list. Each bullet is one to two sentences. Do not guarantee business outcomes.`
   }
 
   // ── Image batch (default) ────────────────────────────────────────────────

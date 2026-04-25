@@ -18,51 +18,204 @@ function RichLine({ text }: { text: string }) {
   )
 }
 
+interface ViewState {
+  analysisId: string
+  screenshotUrl: string
+  result: AnalysisResult | null
+  status: 'analyzing' | 'complete' | 'failed'
+  showHeatmap: boolean
+  suggestions: string | null
+  suggestionsLoading: boolean
+}
+
 interface Props { token: string }
 
-type Status = 'idle' | 'capturing' | 'analyzing' | 'complete' | 'failed'
+type PageStatus = 'idle' | 'capturing' | 'analyzing' | 'complete' | 'failed'
+
+function SuggestionsList({ suggestions, loading }: { suggestions: string | null; loading: boolean }) {
+  if (loading) return (
+    <div className="flex items-center gap-3 t-meta">
+      <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
+      Generating recommendations…
+    </div>
+  )
+  if (!suggestions) return null
+  return (
+    <div className="space-y-3">
+      {suggestions.split('\n').map((line, i) => {
+        const bullet = line.match(/^[-*]\s+(.+)/)
+        if (bullet) return (
+          <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
+            <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
+            <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
+          </div>
+        )
+        if (line.startsWith('#')) return null
+        return line.trim() ? <p key={i} className="t-meta pb-1">{line}</p> : null
+      })}
+    </div>
+  )
+}
+
+function ViewPanel({ view, label, context, pageUrl, token }: {
+  view: ViewState
+  label: string
+  context: 'webpage_desktop' | 'webpage_mobile'
+  pageUrl: string
+  token: string
+  onToggleHeatmap: () => void
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <span className="t-label">{label}</span>
+        {view.result?.heatmap_url && (
+          <button
+            onClick={() => {/* handled by parent */}}
+            className="text-xs text-gray-400 hover:text-white transition-colors border border-gray-700 px-3 py-1"
+          >
+            {view.showHeatmap ? 'Hide heatmap' : 'Show heatmap'}
+          </button>
+        )}
+      </div>
+
+      {/* Screenshot */}
+      <div className="relative border border-gray-800 overflow-hidden bg-gray-900">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={view.screenshotUrl} alt={`${label} screenshot`} className="w-full block" />
+        {view.result?.heatmap_url && view.showHeatmap && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={view.result.heatmap_url}
+            alt="Brain activation heatmap"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: 0.65 }}
+          />
+        )}
+        {view.status === 'analyzing' && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="flex items-center gap-2 text-xs text-white">
+              <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+              Analyzing…
+            </div>
+          </div>
+        )}
+        {view.status === 'failed' && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <span className="text-xs text-red-400">Analysis failed</span>
+          </div>
+        )}
+      </div>
+
+      {/* ROI bars */}
+      {view.result?.roi_data && view.result.roi_data.length > 0 && (
+        <ROIBarChart roiData={view.result.roi_data as ROIRegion[]} />
+      )}
+
+      {/* Suggestions */}
+      <div className="panel">
+        <div className="panel-header">
+          <span className="panel-label">{label} Recommendations</span>
+          <span className="panel-meta">BERG · brain activation</span>
+        </div>
+        <div className="p-5">
+          <SuggestionsList suggestions={view.suggestions} loading={view.suggestionsLoading} />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function WebPageTab({ token }: Props) {
   const [url, setUrl] = useState('')
   const [submittedUrl, setSubmittedUrl] = useState('')
-  const [status, setStatus] = useState<Status>('idle')
+  const [pageStatus, setPageStatus] = useState<PageStatus>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [analysisId, setAnalysisId] = useState<string | null>(null)
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
-  const [showHeatmap, setShowHeatmap] = useState(true)
-  const [suggestions, setSuggestions] = useState<string | null>(null)
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [desktop, setDesktop] = useState<ViewState | null>(null)
+  const [mobile, setMobile] = useState<ViewState | null>(null)
+  const pollDesktopRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollMobileRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => () => {
+    if (pollDesktopRef.current) clearInterval(pollDesktopRef.current)
+    if (pollMobileRef.current) clearInterval(pollMobileRef.current)
+  }, [])
 
   function reset() {
-    if (pollRef.current) clearInterval(pollRef.current)
+    if (pollDesktopRef.current) clearInterval(pollDesktopRef.current)
+    if (pollMobileRef.current) clearInterval(pollMobileRef.current)
     setUrl('')
     setSubmittedUrl('')
-    setStatus('idle')
+    setPageStatus('idle')
     setError(null)
-    setAnalysisId(null)
-    setScreenshotUrl(null)
-    setResult(null)
-    setShowHeatmap(true)
-    setSuggestions(null)
-    setSuggestionsLoading(false)
+    setDesktop(null)
+    setMobile(null)
   }
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+  function startPolling(
+    analysisId: string,
+    context: 'webpage_desktop' | 'webpage_mobile',
+    pollRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>,
+    setter: React.Dispatch<React.SetStateAction<ViewState | null>>,
+    pageUrl: string,
+  ) {
+    pollRef.current = setInterval(async () => {
+      const res = await fetch(`/api/analyze/${analysisId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data: AnalysisResult = await res.json()
+      if (data.status !== 'complete' && data.status !== 'failed') return
+
+      clearInterval(pollRef.current!)
+      pollRef.current = null
+
+      if (data.status === 'failed') {
+        setter(prev => prev ? { ...prev, status: 'failed', result: data } : null)
+        return
+      }
+
+      setter(prev => prev ? { ...prev, status: 'complete', result: data } : null)
+
+      // Both done? Update page status
+      setDesktop(d => {
+        setMobile(m => {
+          const otherDone = context === 'webpage_desktop'
+            ? (m?.status === 'complete' || m?.status === 'failed')
+            : (d?.status === 'complete' || d?.status === 'failed')
+          if (otherDone) setPageStatus('complete')
+          return m
+        })
+        return d
+      })
+      setPageStatus(s => s === 'analyzing' ? 'complete' : s)
+
+      // Fetch AI suggestions
+      if (data.roi_data?.length) {
+        setter(prev => prev ? { ...prev, suggestionsLoading: true } : null)
+        fetch('/api/analyze/image-summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ context, page_url: pageUrl, roi_data: data.roi_data }),
+        })
+          .then(r => r.json())
+          .then(d => setter(prev => prev ? { ...prev, suggestions: d.summary ?? null, suggestionsLoading: false } : null))
+          .catch(() => setter(prev => prev ? { ...prev, suggestionsLoading: false } : null))
+      }
+    }, 3000)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const trimmed = url.trim()
     if (!trimmed) return
-
     const withProtocol = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`
+
     setSubmittedUrl(withProtocol)
-    setStatus('capturing')
+    setPageStatus('capturing')
     setError(null)
-    setResult(null)
-    setSuggestions(null)
-    setScreenshotUrl(null)
+    setDesktop(null)
+    setMobile(null)
 
     const res = await fetch('/api/analyze/webpage', {
       method: 'POST',
@@ -73,77 +226,62 @@ export function WebPageTab({ token }: Props) {
     if (res.status === 429) {
       const d = await res.json()
       setError(d.reason ?? 'Usage limit reached.')
-      setStatus('failed')
+      setPageStatus('failed')
       return
     }
     if (!res.ok) {
       const d = await res.json().catch(() => ({}))
       setError(d.error ?? 'Screenshot or dispatch failed.')
-      setStatus('failed')
+      setPageStatus('failed')
       return
     }
 
-    const { analysis_id, screenshot_url } = await res.json()
-    setAnalysisId(analysis_id)
-    setScreenshotUrl(screenshot_url)
-    setStatus('analyzing')
+    const { desktop: d, mobile: m } = await res.json()
 
-    // Poll until complete
-    pollRef.current = setInterval(async () => {
-      const poll = await fetch(`/api/analyze/${analysis_id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!poll.ok) return
-      const data: AnalysisResult = await poll.json()
-      if (data.status !== 'complete' && data.status !== 'failed') return
+    const makeView = (v: { analysis_id: string; screenshot_url: string }): ViewState => ({
+      analysisId: v.analysis_id,
+      screenshotUrl: v.screenshot_url,
+      result: null,
+      status: 'analyzing',
+      showHeatmap: true,
+      suggestions: null,
+      suggestionsLoading: false,
+    })
 
-      clearInterval(pollRef.current!)
-      pollRef.current = null
+    const dv = makeView(d)
+    const mv = makeView(m)
+    setDesktop(dv)
+    setMobile(mv)
+    setPageStatus('analyzing')
 
-      if (data.status === 'failed') {
-        setError(data.error_message ?? 'Analysis failed.')
-        setStatus('failed')
-        return
-      }
-
-      setResult(data)
-      setStatus('complete')
-
-      if (data.roi_data?.length) {
-        setSuggestionsLoading(true)
-        fetch('/api/analyze/image-summary', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ context: 'webpage', page_url: withProtocol, roi_data: data.roi_data }),
-        })
-          .then(r => r.json())
-          .then(d => setSuggestions(d.summary ?? null))
-          .catch(() => {})
-          .finally(() => setSuggestionsLoading(false))
-      }
-    }, 3000)
+    startPolling(d.analysis_id, 'webpage_desktop', pollDesktopRef, setDesktop, withProtocol)
+    startPolling(m.analysis_id, 'webpage_mobile', pollMobileRef, setMobile, withProtocol)
   }
+
+  const bothDone = desktop && mobile &&
+    (desktop.status === 'complete' || desktop.status === 'failed') &&
+    (mobile.status === 'complete' || mobile.status === 'failed')
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-semibold text-white">Landing Page Analyzer</h2>
         <p className="text-xs text-gray-500 mt-1">
-          Enter any public URL. The page is screenshotted above the fold (1280×720) and run through
-          the BERG brain activation model — same as thumbnail analysis. Returns a heatmap and ROI scores.
+          Enter any public URL. Screenshots both desktop (1280×720) and mobile (390×844) above the fold,
+          runs each through BERG, and gives separate brain activation scores and design recommendations for each viewport.
+          Counts as 2 analyses.
         </p>
       </div>
 
-      {/* URL input */}
-      {status === 'idle' || status === 'failed' ? (
+      {/* URL form */}
+      {(pageStatus === 'idle' || pageStatus === 'failed') && (
         <form onSubmit={handleSubmit} className="flex gap-3">
           <input
             type="text"
             value={url}
             onChange={e => setUrl(e.target.value)}
             placeholder="https://example.com"
-            className="flex-1 px-3 py-2 text-sm bg-gray-900 border border-gray-700 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-            disabled={false}
+            className="flex-1 px-3 py-2 text-sm"
           />
           <button
             type="submit"
@@ -153,7 +291,7 @@ export function WebPageTab({ token }: Props) {
             Analyze
           </button>
         </form>
-      ) : null}
+      )}
 
       {/* Error */}
       {error && (
@@ -164,116 +302,118 @@ export function WebPageTab({ token }: Props) {
       )}
 
       {/* Capturing */}
-      {status === 'capturing' && (
+      {pageStatus === 'capturing' && (
         <div className="flex items-center gap-3 py-4">
           <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
           <div>
-            <p className="text-sm text-white">Capturing screenshot…</p>
+            <p className="text-sm text-white">Capturing desktop and mobile screenshots…</p>
             <p className="text-xs text-gray-500 mt-0.5">{submittedUrl}</p>
+            <p className="text-xs text-gray-600 mt-0.5">First run downloads Chromium (~15s). Warm runs are faster.</p>
           </div>
         </div>
       )}
 
-      {/* Analyzing */}
-      {status === 'analyzing' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 py-2">
-            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
-            <p className="text-sm text-white">Running BERG brain activation model…</p>
-          </div>
-          {/* Show screenshot while waiting */}
-          {screenshotUrl && (
-            <div className="border border-gray-800 overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={screenshotUrl} alt="Page screenshot" className="w-full opacity-60" />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Complete */}
-      {status === 'complete' && result && (
-        <div className="space-y-8">
+      {/* Dual viewport results */}
+      {(desktop || mobile) && pageStatus !== 'capturing' && (
+        <div className="space-y-6">
           {/* URL + reset */}
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-500 font-mono truncate max-w-lg">{submittedUrl}</p>
-            <button
-              onClick={reset}
-              className="text-xs text-gray-400 hover:text-white transition-colors shrink-0 ml-4"
-            >
-              Analyze another page
-            </button>
+            {bothDone && (
+              <button onClick={reset} className="text-xs text-gray-400 hover:text-white transition-colors shrink-0 ml-4">
+                Analyze another page
+              </button>
+            )}
           </div>
 
-          {/* Screenshot with heatmap overlay */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">Brain Activation Heatmap</h3>
-              {result.heatmap_url && (
-                <button
-                  onClick={() => setShowHeatmap(h => !h)}
-                  className="text-xs text-gray-400 hover:text-white transition-colors border border-gray-700 px-3 py-1"
-                >
-                  {showHeatmap ? 'Hide heatmap' : 'Show heatmap'}
-                </button>
-              )}
-            </div>
-            <div className="relative border border-gray-800 overflow-hidden">
-              {screenshotUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={screenshotUrl} alt="Page screenshot" className="w-full block" />
-              )}
-              {result.heatmap_url && showHeatmap && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={result.heatmap_url}
-                  alt="Brain activation heatmap"
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{ opacity: 0.65 }}
-                />
-              )}
-            </div>
-            <p className="text-xs text-gray-500">
-              Warmer zones indicate stronger predicted neural activation. This reflects visual salience, not user intent.
-            </p>
-          </div>
-
-          {/* ROI bar chart */}
-          {result.roi_data && result.roi_data.length > 0 && (
-            <ROIBarChart roiData={result.roi_data as ROIRegion[]} />
-          )}
-
-          {/* AI suggestions */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-label">Design Recommendations</span>
-              <span className="panel-meta">BERG · brain activation analysis</span>
-            </div>
-            <div className="p-5">
-              {suggestionsLoading ? (
-                <div className="flex items-center gap-3 t-meta">
-                  <div className="w-3 h-3 border border-indigo-500 border-t-transparent animate-spin" />
-                  Generating recommendations…
+          {/* Side-by-side panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {desktop && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <span className="t-label">Desktop — 1280×720</span>
+                  {desktop.result?.heatmap_url && (
+                    <button
+                      onClick={() => setDesktop(d => d ? { ...d, showHeatmap: !d.showHeatmap } : null)}
+                      className="text-xs text-gray-400 hover:text-white transition-colors border border-gray-700 px-3 py-1"
+                    >
+                      {desktop.showHeatmap ? 'Hide heatmap' : 'Show heatmap'}
+                    </button>
+                  )}
                 </div>
-              ) : suggestions ? (
-                <div className="space-y-3">
-                  {suggestions.split('\n').map((line, i) => {
-                    const bullet = line.match(/^[-*]\s+(.+)/)
-                    if (bullet) return (
-                      <div key={i} className="flex gap-3 py-1 border-b border-gray-800 last:border-0">
-                        <span className="text-indigo-500 shrink-0 t-meta mt-0.5">—</span>
-                        <span className="text-sm text-gray-200 leading-relaxed"><RichLine text={bullet[1]} /></span>
+                <div className="relative border border-gray-800 overflow-hidden bg-gray-900">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={desktop.screenshotUrl} alt="Desktop screenshot" className="w-full block" />
+                  {desktop.result?.heatmap_url && desktop.showHeatmap && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={desktop.result.heatmap_url} alt="Heatmap" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.65 }} />
+                  )}
+                  {desktop.status === 'analyzing' && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="flex items-center gap-2 text-xs text-white">
+                        <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                        Analyzing…
                       </div>
-                    )
-                    if (line.startsWith('#')) return null
-                    return line.trim() ? <p key={i} className="t-meta pb-1">{line}</p> : null
-                  })}
+                    </div>
+                  )}
                 </div>
-              ) : null}
-            </div>
+                {desktop.result?.roi_data && <ROIBarChart roiData={desktop.result.roi_data as ROIRegion[]} />}
+                <div className="panel">
+                  <div className="panel-header">
+                    <span className="panel-label">Desktop Recommendations</span>
+                    <span className="panel-meta">BERG · brain activation</span>
+                  </div>
+                  <div className="p-5">
+                    <SuggestionsList suggestions={desktop.suggestions} loading={desktop.suggestionsLoading} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {mobile && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <span className="t-label">Mobile — 390×844</span>
+                  {mobile.result?.heatmap_url && (
+                    <button
+                      onClick={() => setMobile(m => m ? { ...m, showHeatmap: !m.showHeatmap } : null)}
+                      className="text-xs text-gray-400 hover:text-white transition-colors border border-gray-700 px-3 py-1"
+                    >
+                      {mobile.showHeatmap ? 'Hide heatmap' : 'Show heatmap'}
+                    </button>
+                  )}
+                </div>
+                <div className="relative border border-gray-800 overflow-hidden bg-gray-900">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={mobile.screenshotUrl} alt="Mobile screenshot" className="w-full block" />
+                  {mobile.result?.heatmap_url && mobile.showHeatmap && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={mobile.result.heatmap_url} alt="Heatmap" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.65 }} />
+                  )}
+                  {mobile.status === 'analyzing' && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="flex items-center gap-2 text-xs text-white">
+                        <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                        Analyzing…
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {mobile.result?.roi_data && <ROIBarChart roiData={mobile.result.roi_data as ROIRegion[]} />}
+                <div className="panel">
+                  <div className="panel-header">
+                    <span className="panel-label">Mobile Recommendations</span>
+                    <span className="panel-meta">BERG · brain activation</span>
+                  </div>
+                  <div className="p-5">
+                    <SuggestionsList suggestions={mobile.suggestions} loading={mobile.suggestionsLoading} />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <AttributionFooter />
+          {bothDone && <AttributionFooter />}
         </div>
       )}
     </div>
