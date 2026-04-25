@@ -230,8 +230,8 @@ export function WebPageTab({ token }: Props) {
       return
     }
     if (!res.ok) {
-      const d = await res.json().catch(() => ({}))
-      setError(d.error ?? 'Screenshot or dispatch failed.')
+      const d = await res.json().catch(() => null)
+      setError(d?.error ?? `Request failed (HTTP ${res.status}). ${res.status === 504 ? 'The function timed out — try again, warm runs are faster.' : ''}`)
       setPageStatus('failed')
       return
     }
