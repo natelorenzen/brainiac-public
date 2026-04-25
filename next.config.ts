@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 const config: NextConfig = {
-  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
+  serverExternalPackages: ['@sparticuz/chromium-min', 'puppeteer-core'],
   images: {
     remotePatterns: [
       {

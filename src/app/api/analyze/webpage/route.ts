@@ -54,16 +54,21 @@ export async function POST(req: NextRequest) {
   )
 
   // Take screenshot
+  // chromium-min downloads the binary to /tmp at cold-start (~15s once per instance)
+  // CHROMIUM_DOWNLOAD_URL can be overridden to a self-hosted binary for faster cold starts
+  const CHROMIUM_URL =
+    process.env.CHROMIUM_DOWNLOAD_URL ??
+    'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar'
+
   let screenshotBuffer: Buffer
   try {
-    // Dynamic import keeps these out of the edge bundle
-    const chromium = (await import('@sparticuz/chromium')).default
+    const chromium = (await import('@sparticuz/chromium-min')).default
     const puppeteer = (await import('puppeteer-core')).default
 
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: { width: 1280, height: 720 },
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromium.executablePath(CHROMIUM_URL),
       headless: true,
     })
 
