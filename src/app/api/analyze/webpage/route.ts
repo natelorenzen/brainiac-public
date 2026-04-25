@@ -4,7 +4,7 @@ import { checkUserLimits, checkGlobalBudget, incrementUsage } from '@/lib/usage'
 import { dispatchThumbnailJob, ATTRIBUTION } from '@/lib/inference'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+export const maxDuration = 60
 
 const BLOCKED_PATTERNS = [
   /^localhost$/i,
@@ -179,19 +179,15 @@ export async function POST(req: NextRequest) {
     { status: 429 }
   )
 
-  const CHROMIUM_URL =
-    process.env.CHROMIUM_DOWNLOAD_URL ??
-    'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar'
-
   let desktopBuf: Buffer, mobileBuf: Buffer
   try {
-    const chromium = (await import('@sparticuz/chromium-min')).default
+    const chromium = (await import('@sparticuz/chromium')).default
     const puppeteer = (await import('puppeteer-core')).default
 
     const browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: null,
-      executablePath: await chromium.executablePath(CHROMIUM_URL),
+      executablePath: await chromium.executablePath(),
       headless: true,
     })
 
