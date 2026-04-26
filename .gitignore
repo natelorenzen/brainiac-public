@@ -22,6 +22,11 @@ out/
 .claude/worktrees/
 tsconfig.tsbuildinfo
 
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
 # misc
 .DS_Store
 *.pem
