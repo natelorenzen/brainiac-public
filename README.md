@@ -4,6 +4,8 @@
 
 Free, non-commercial, open source. Powered by [BERG](https://github.com/gifale95/BERG) and [Meta FAIR TRIBE v2](https://github.com/facebookresearch/tribev2), both CC-BY-NC-4.0.
 
+> **Non-commercial research use only.** This repository is published for research and educational purposes. The underlying models (BERG and Meta FAIR TRIBE v2) are licensed under CC-BY-NC-4.0, which prohibits commercial use. This codebase is not designed, tested, or licensed for commercial deployment. Do not use it to generate revenue, charge users, or integrate into commercial products without first obtaining appropriate commercial licenses from the respective model authors.
+
 ---
 
 ## What it does
