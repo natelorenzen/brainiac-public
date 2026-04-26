@@ -236,7 +236,7 @@ export default function LandingPage() {
           <div className="flex gap-5">
             <a href="/legal/terms" className="hover:text-gray-400 transition-colors">Terms</a>
             <a href="/legal/privacy" className="hover:text-gray-400 transition-colors">Privacy</a>
-            <span>Literally Anything LLC</span>
+            <span>[YOUR COMPANY NAME]</span>
           </div>
         </div>
       </footer>

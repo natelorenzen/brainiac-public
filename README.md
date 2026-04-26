@@ -2,8 +2,6 @@
 
 Brain activation analysis for visual content — thumbnails, landing pages, and videos.
 
-**Live demo:** https://brainiac-ivory.vercel.app
-
 ---
 
 ## What it does

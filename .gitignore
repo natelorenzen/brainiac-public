@@ -17,6 +17,11 @@ out/
 # vercel
 .vercel
 
+# Claude Code local settings (personal paths and config)
+.claude/settings.local.json
+.claude/worktrees/
+tsconfig.tsbuildinfo
+
 # misc
 .DS_Store
 *.pem

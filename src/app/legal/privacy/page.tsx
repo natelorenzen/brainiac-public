@@ -67,7 +67,7 @@ export default function PrivacyPage() {
         </p>
 
         <h2>Contact</h2>
-        <p>Operator: Literally Anything LLC. Data requests: [EMAIL]</p>
+        <p>Operator: [YOUR COMPANY NAME]. Data requests: [EMAIL]</p>
       </main>
     </div>
   )

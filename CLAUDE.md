@@ -22,9 +22,9 @@ uploaded video files.
 
 **No revenue is generated. No performance claims are made. CC-BY-NC-4.0 on both models.**
 
-**Live URL:** https://brainiac-ivory.vercel.app
-**GitHub:** https://github.com/natelorenzen/brainiac
-**Operator:** Literally Anything LLC
+**Live URL:** https://your-deployment.vercel.app
+**GitHub:** https://github.com/your-org/brainiac-public
+**Operator:** [YOUR COMPANY NAME]
 
 ---
 
@@ -58,8 +58,8 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=          # server-only, never expose client-side
 
-MODAL_THUMBNAIL_URL=https://natelorenzen--brainiac-thumbnail-inference.modal.run
-MODAL_INFERENCE_URL=https://natelorenzen--brainiac-inference.modal.run
+MODAL_THUMBNAIL_URL=https://your-org--brainiac-thumbnail-inference.modal.run
+MODAL_INFERENCE_URL=https://your-org--brainiac-inference.modal.run
 
 ENCRYPTION_KEY=                     # 64-char hex (openssl rand -hex 32)
 
@@ -261,7 +261,7 @@ modal deploy modal/inference.py
 #   brainiac-hf: HF_TOKEN, MOCK_MODE
 
 # Endpoint URL (already set in Vercel):
-#   https://natelorenzen--brainiac-inference.modal.run
+#   https://your-org--brainiac-inference.modal.run
 ```
 
 ---

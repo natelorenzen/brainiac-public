@@ -22,7 +22,7 @@ export default function TermsPage() {
         </p>
 
         <h2>2. Data Collection and Use</h2>
-        <p>By using Brainiac, you grant Literally Anything LLC a license to:</p>
+        <p>By using Brainiac, you grant [YOUR COMPANY NAME] a license to:</p>
         <ul>
           <li>Store uploaded creative assets and run inference on those assets</li>
           <li>Store analysis outputs, metadata (filename, dimensions, timestamp)</li>
@@ -63,7 +63,7 @@ export default function TermsPage() {
         </p>
 
         <h2>7. Contact</h2>
-        <p>Operator: Literally Anything LLC. Contact information: [EMAIL]</p>
+        <p>Operator: [YOUR COMPANY NAME]. Contact information: [EMAIL]</p>
       </main>
     </div>
   )

@@ -194,7 +194,7 @@ function AccountPageInner() {
             {' · '}
             <a href="/legal/privacy" className="underline hover:text-gray-400">Privacy Policy</a>
           </p>
-          <p>Operator: Literally Anything LLC · Non-commercial use only (CC-BY-NC-4.0)</p>
+          <p>Operator: [YOUR COMPANY NAME] · Non-commercial use only (CC-BY-NC-4.0)</p>
         </div>
       </main>
     </div>
