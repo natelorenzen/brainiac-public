@@ -68,15 +68,15 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, 
         className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative aspect-video bg-gray-800 shrink-0">
+        <div className="relative bg-gray-800 shrink-0 max-h-[35vh] overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full object-cover" />
+          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full max-h-[35vh] object-contain" />
           {card.result?.heatmap_url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={card.result.heatmap_url}
               alt="Brain activation heatmap"
-              className="absolute inset-0 w-full h-full object-cover opacity-70"
+              className="absolute inset-0 w-full h-full max-h-[35vh] object-contain opacity-70"
             />
           )}
           {card.isWinner && (
@@ -92,7 +92,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, 
           </button>
         </div>
 
-        <div className="p-5 space-y-6 overflow-y-auto">
+        <div className="p-5 space-y-6 overflow-y-auto flex-1 min-h-0">
           <div>
             <p className="text-sm font-medium text-white truncate">{card.fileName}</p>
             {card.spend !== undefined && card.spend > 0 && (
