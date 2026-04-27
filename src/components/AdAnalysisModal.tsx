@@ -53,10 +53,12 @@ interface Props {
   card: ModalCard
   comprehensive?: ComprehensiveAnalysis
   loading?: boolean
+  error?: string
   onClose: () => void
+  onRetry?: () => void
 }
 
-export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props) {
+export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, onRetry }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -122,6 +124,20 @@ export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props
             <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-800 pt-4">
               <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
               Running comprehensive ad analysis…
+            </div>
+          )}
+
+          {!loading && error && !comprehensive && (
+            <div className="border-t border-gray-800 pt-4 space-y-2">
+              <p className="text-xs text-red-400">{error}</p>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 underline transition-colors"
+                >
+                  Retry analysis
+                </button>
+              )}
             </div>
           )}
 
