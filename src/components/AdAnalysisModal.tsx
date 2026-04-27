@@ -20,13 +20,37 @@ function RichLine({ text }: { text: string }) {
 function ScoreBadge({ score, max = 10 }: { score: number; max?: number }) {
   const pct = score / max
   const color =
-    pct >= 0.75 ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/50' :
-    pct >= 0.45 ? 'bg-amber-900/40 text-amber-300 border-amber-800/50' :
-                  'bg-red-900/40 text-red-300 border-red-800/50'
+    pct >= 0.7 ? 'bg-gray-900 text-emerald-400 border-emerald-800/60' :
+    pct >= 0.4 ? 'bg-gray-900 text-amber-400 border-amber-800/60' :
+                 'bg-gray-900 text-[#ff2a2b] border-red-900/60'
   return (
     <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${color}`}>
       {score}/{max}
     </span>
+  )
+}
+
+function GradeBadge({ grade }: { grade: 'A' | 'B' | 'C' | 'D' }) {
+  const color =
+    grade === 'A' ? 'text-emerald-400 border-emerald-800/60' :
+    grade === 'B' ? 'text-amber-400 border-amber-800/60' :
+    grade === 'C' ? 'text-orange-400 border-orange-800/60' :
+                    'text-[#ff2a2b] border-red-900/60'
+  return (
+    <span className={`text-sm font-mono font-bold px-2 py-0.5 rounded border bg-gray-900 ${color}`}>
+      {grade}
+    </span>
+  )
+}
+
+function PassFail({ pass, label }: { pass: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-[10px] font-bold uppercase ${pass ? 'text-emerald-400' : 'text-[#ff2a2b]'}`}>
+        {pass ? '✓' : '✗'}
+      </span>
+      <span className="text-xs text-gray-300">{label}</span>
+    </div>
   )
 }
 
@@ -38,6 +62,22 @@ const BE_LABELS: Record<string, string> = {
   loss_aversion: 'Loss Aversion',
   authority: 'Authority',
   reciprocity: 'Reciprocity',
+}
+
+const AWARENESS_LABELS: Record<string, string> = {
+  unaware: 'Unaware',
+  problem_aware: 'Problem-aware',
+  solution_aware: 'Solution-aware',
+  product_aware: 'Product-aware',
+  most_aware: 'Most-aware',
+}
+
+const AWARENESS_DESCRIPTIONS: Record<string, string> = {
+  unaware: "Doesn't know they have a problem",
+  problem_aware: 'Knows the problem, not the solution type',
+  solution_aware: 'Knows solutions exist, not this product',
+  product_aware: 'Knows this product, not yet committed',
+  most_aware: 'Ready — just needs an offer or trigger',
 }
 
 interface ModalCard {
@@ -65,10 +105,10 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, 
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
+        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative bg-gray-800 shrink-0 max-h-[35vh] overflow-hidden">
+        <div className="relative bg-gray-800 shrink-0 max-h-[35vh] overflow-hidden rounded-t-2xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={card.previewUrl} alt={card.fileName} className="w-full h-full max-h-[35vh] object-contain" />
           {card.result?.heatmap_url && (
@@ -129,11 +169,11 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, 
 
           {!loading && error && !comprehensive && (
             <div className="border-t border-gray-800 pt-4 space-y-2">
-              <p className="text-xs text-red-400">{error}</p>
+              <p className="text-xs text-[#ff2a2b]">{error}</p>
               {onRetry && (
                 <button
                   onClick={onRetry}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 underline transition-colors"
+                  className="text-xs text-gray-400 hover:text-gray-200 underline transition-colors"
                 >
                   Retry analysis
                 </button>
@@ -150,8 +190,8 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, 
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border-t border-gray-800 pt-4 space-y-3 first:border-0 first:pt-0">
-      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{title}</p>
+    <div className="border-t border-gray-800 pt-4 space-y-3">
+      <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">{title}</p>
       {children}
     </div>
   )
@@ -160,6 +200,83 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
   return (
     <>
+      {/* Market Context */}
+      {data.market_context && (
+        <Section title="Market Context">
+          <div className="flex flex-wrap gap-3">
+            <div className="space-y-0.5">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Awareness</p>
+              <p className="text-xs font-semibold text-white">
+                {AWARENESS_LABELS[data.market_context.awareness_level] ?? data.market_context.awareness_level}
+              </p>
+              <p className="text-[10px] text-gray-500">
+                {AWARENESS_DESCRIPTIONS[data.market_context.awareness_level]}
+              </p>
+              {data.market_context.awareness_reasoning && (
+                <p className="text-[11px] text-gray-400 leading-snug pt-0.5">{data.market_context.awareness_reasoning}</p>
+              )}
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sophistication</p>
+              <p className="text-xs font-semibold text-white">Level {data.market_context.sophistication_level} / 5</p>
+              {data.market_context.sophistication_reasoning && (
+                <p className="text-[11px] text-gray-400 leading-snug pt-0.5">{data.market_context.sophistication_reasoning}</p>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* Ad Format */}
+      {data.ad_format && (
+        <Section title="Ad Format">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-mono bg-gray-950 border border-gray-800 px-2 py-0.5 rounded text-gray-300">
+              {data.ad_format.type?.replace(/_/g, ' ')}
+            </span>
+            {data.ad_format.composition && Object.entries(data.ad_format.composition)
+              .filter(([, v]) => v === true)
+              .map(([k]) => (
+                <span key={k} className="text-[10px] text-emerald-400 border border-emerald-900/50 px-1.5 py-0.5 rounded">
+                  {k.replace(/has_|is_/g, '').replace(/_/g, ' ')}
+                </span>
+              ))}
+          </div>
+          {data.ad_format.format_assessment && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.ad_format.format_assessment}</p>
+          )}
+        </Section>
+      )}
+
+      {/* Hook Analysis */}
+      {data.hook_analysis && (
+        <Section title="Hook Analysis">
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Scroll-stop</p>
+              <ScoreBadge score={data.hook_analysis.scroll_stop_score} />
+            </div>
+          </div>
+          {data.hook_analysis.pattern_interrupt && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Pattern interrupt</p>
+              <p className="text-xs text-gray-300">{data.hook_analysis.pattern_interrupt}</p>
+            </div>
+          )}
+          {data.hook_analysis.first_half_second && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">First 0.5 seconds</p>
+              <p className="text-xs text-gray-300">{data.hook_analysis.first_half_second}</p>
+            </div>
+          )}
+          {data.hook_analysis.hook_feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug border-t border-gray-800 pt-2">
+              {data.hook_analysis.hook_feedback}
+            </p>
+          )}
+        </Section>
+      )}
+
       {/* Copy Analysis */}
       <Section title="Copy Analysis">
         <CopyRow label="Headline" text={data.copy?.headline?.text} feedback={data.copy?.headline?.feedback}>
@@ -201,30 +318,108 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
               <div
                 key={key}
                 className={`rounded-lg px-2.5 py-2 border ${
-                  be.present
-                    ? 'bg-violet-950/30 border-violet-900/50'
-                    : 'bg-gray-900 border-gray-800'
+                  be.present ? 'bg-gray-900 border-emerald-800/50' : 'bg-gray-900 border-gray-800'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className={`text-[11px] font-medium ${be.present ? 'text-violet-300' : 'text-gray-500'}`}>
+                  <span className={`text-[11px] font-medium ${be.present ? 'text-emerald-400' : 'text-gray-500'}`}>
                     {label}
                   </span>
                   {be.present && <ScoreBadge score={be.strength} />}
                 </div>
-                <p className="text-[10px] text-gray-500 leading-snug">{be.note || (be.present ? '' : 'Not present')}</p>
+                <p className="text-[10px] text-gray-400 leading-snug">{be.note || (be.present ? '' : 'Not present')}</p>
               </div>
             )
           })}
         </div>
         {data.behavioral_economics?.overall_feedback && (
-          <p className="text-[11px] text-gray-400 leading-snug mt-2">{data.behavioral_economics.overall_feedback}</p>
+          <p className="text-[11px] text-gray-400 leading-snug mt-1">{data.behavioral_economics.overall_feedback}</p>
         )}
       </Section>
 
+      {/* Offer Architecture */}
+      {data.offer_architecture && (
+        <Section title="Offer Architecture">
+          {data.offer_architecture.offer_present ? (
+            <>
+              {data.offer_architecture.offer_text && (
+                <p className="text-xs text-gray-200 italic">&ldquo;{data.offer_architecture.offer_text}&rdquo;</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {[
+                  ['Price anchor', data.offer_architecture.has_price_anchor],
+                  ['Guarantee', data.offer_architecture.has_guarantee],
+                  ['Urgency', data.offer_architecture.has_urgency_mechanism],
+                  ['Trial / free', data.offer_architecture.has_trial_or_free],
+                ].map(([label, present]) => (
+                  <span
+                    key={label as string}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                      present
+                        ? 'text-emerald-400 border-emerald-900/50'
+                        : 'text-gray-600 border-gray-800'
+                    }`}
+                  >
+                    {label as string}
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-4">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Perceived value</p>
+                  <ScoreBadge score={data.offer_architecture.perceived_value_score} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Offer clarity</p>
+                  <ScoreBadge score={data.offer_architecture.offer_clarity_score} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-gray-500 italic">No offer present in this ad.</p>
+          )}
+          {data.offer_architecture.offer_feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug border-t border-gray-800 pt-2">
+              {data.offer_architecture.offer_feedback}
+            </p>
+          )}
+        </Section>
+      )}
+
+      {/* Cognitive Load */}
+      {data.cognitive_load && (
+        <Section title="Cognitive Load">
+          <div className="flex items-center gap-4">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Load score</p>
+              <ScoreBadge score={data.cognitive_load.score} />
+              <p className="text-[10px] text-gray-600 mt-0.5">lower = easier to process</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide">Density</p>
+              <span className={`text-xs font-medium ${
+                data.cognitive_load.density === 'minimal' ? 'text-emerald-400' :
+                data.cognitive_load.density === 'moderate' ? 'text-amber-400' : 'text-[#ff2a2b]'
+              }`}>
+                {data.cognitive_load.density}
+              </span>
+            </div>
+          </div>
+          {data.cognitive_load.overload_risk && data.cognitive_load.overload_risk !== 'none' && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.cognitive_load.overload_risk}</p>
+          )}
+          {data.cognitive_load.simplification && (
+            <div className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-0.5">Simplification</p>
+              <p className="text-xs text-gray-300 leading-snug">{data.cognitive_load.simplification}</p>
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* Neuroscience */}
       {data.neuroscience && (
-        <Section title="Neuroscience Interpretation">
+        <Section title="Neuroscience">
           <NeuroRow label="Attention" text={data.neuroscience.attention_prediction} />
           <NeuroRow label="Emotional Encoding" text={data.neuroscience.emotional_encoding} />
           <NeuroRow label="Memory Encoding" text={data.neuroscience.memory_encoding} />
@@ -256,12 +451,47 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
         </Section>
       )}
 
+      {/* Platform Fit */}
+      {data.platform_fit && (
+        <Section title="Platform Fit">
+          {data.platform_fit.optimised_for?.length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Optimised for</p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.platform_fit.optimised_for.map(p => (
+                  <span key={p} className="text-[10px] text-emerald-400 border border-emerald-900/50 px-1.5 py-0.5 rounded">{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.platform_fit.weak_for?.length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Weak for</p>
+              <div className="flex flex-wrap gap-1.5">
+                {data.platform_fit.weak_for.map(p => (
+                  <span key={p} className="text-[10px] text-[#ff2a2b] border border-red-900/50 px-1.5 py-0.5 rounded">{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {data.platform_fit.reasoning && (
+            <p className="text-[11px] text-gray-400 leading-snug">{data.platform_fit.reasoning}</p>
+          )}
+          {data.platform_fit.adaptation_notes && (
+            <div className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-0.5">Adaptation</p>
+              <p className="text-xs text-gray-300 leading-snug">{data.platform_fit.adaptation_notes}</p>
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* Pattern Matches */}
       {data.pattern_matches && data.pattern_matches.length > 0 && (
         <Section title="Winning Pattern Matches">
           <ul className="space-y-1.5">
             {data.pattern_matches.map((p, i) => (
-              <li key={i} className="flex gap-2 text-[11px] text-yellow-200">
+              <li key={i} className="flex gap-2 text-[11px] text-gray-300">
                 <span className="text-yellow-500 shrink-0">★</span>
                 <span>{p}</span>
               </li>
@@ -284,6 +514,32 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
         </Section>
       )}
 
+      {/* Framework Score */}
+      {data.framework_score && (
+        <Section title="Framework Score">
+          <div className="flex items-center gap-3">
+            <GradeBadge grade={data.framework_score.overall_framework_grade} />
+            <span className={`text-xs font-medium ${
+              data.framework_score.minimum_viable_test === 'pass' ? 'text-emerald-400' : 'text-[#ff2a2b]'
+            }`}>
+              Minimum viable test: {data.framework_score.minimum_viable_test}
+            </span>
+          </div>
+          <div className="space-y-1.5 pt-1">
+            <PassFail pass={!data.framework_score.headline_leaves_gap} label="Headline is complete (no unresolved gap)" />
+            <PassFail pass={data.framework_score.subheadline_justified} label="Subheadline is justified" />
+            <PassFail pass={data.framework_score.benefits_justified} label="Benefits are justified" />
+            <PassFail pass={data.framework_score.trust_signal_justified} label="Trust signal is justified" />
+            <PassFail pass={data.framework_score.cta_justified} label="CTA is justified" />
+          </div>
+          {data.framework_score.framework_feedback && (
+            <p className="text-[11px] text-gray-400 leading-snug border-t border-gray-800 pt-2">
+              {data.framework_score.framework_feedback}
+            </p>
+          )}
+        </Section>
+      )}
+
       {/* Overall Verdict */}
       {data.overall && (
         <Section title="Overall Verdict">
@@ -291,21 +547,21 @@ function ComprehensiveSections({ data }: { data: ComprehensiveAnalysis }) {
             <p className="text-xs text-gray-300 leading-relaxed">{data.overall.verdict}</p>
           )}
           {data.overall.top_strength && (
-            <div className="bg-emerald-950/30 border border-emerald-900/40 rounded-lg px-3 py-2">
+            <div className="bg-gray-950 border border-emerald-900/40 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-emerald-400 font-semibold mb-0.5">Top Strength</p>
-              <p className="text-xs text-emerald-100 leading-snug">{data.overall.top_strength}</p>
+              <p className="text-xs text-gray-200 leading-snug">{data.overall.top_strength}</p>
             </div>
           )}
           {data.overall.critical_weakness && (
-            <div className="bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-red-400 font-semibold mb-0.5">Critical Weakness</p>
-              <p className="text-xs text-red-100 leading-snug">{data.overall.critical_weakness}</p>
+            <div className="bg-gray-950 border border-red-900/40 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-[#ff2a2b] font-semibold mb-0.5">Critical Weakness</p>
+              <p className="text-xs text-gray-200 leading-snug">{data.overall.critical_weakness}</p>
             </div>
           )}
           {data.overall.priority_fix && (
-            <div className="bg-indigo-950/40 border border-indigo-900/50 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-indigo-400 font-semibold mb-0.5">Priority Fix</p>
-              <p className="text-xs text-indigo-100 leading-snug">{data.overall.priority_fix}</p>
+            <div className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-0.5">Priority Fix</p>
+              <p className="text-xs text-gray-200 leading-snug">{data.overall.priority_fix}</p>
             </div>
           )}
         </Section>
@@ -352,7 +608,7 @@ function NeuroRow({ label, text }: { label: string; text?: string }) {
   if (!text) return null
   return (
     <div className="space-y-0.5">
-      <p className="text-[10px] uppercase tracking-wide text-violet-400 font-semibold">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">{label}</p>
       <p className="text-[11px] text-gray-300 leading-snug">{text}</p>
     </div>
   )

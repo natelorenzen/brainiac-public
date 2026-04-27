@@ -5,8 +5,10 @@ import { Upload, Square } from 'lucide-react'
 import type { AnalysisResult, ROIRegion } from '@/types'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { AdAnalysisModal } from '@/components/AdAnalysisModal'
+import { ExtractionConfirmPanel } from '@/components/ExtractionConfirmPanel'
 import { supabase } from '@/lib/supabase'
 import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
+import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route'
 
 const WINNER_THRESHOLD_USD = 1000
 
@@ -50,6 +52,11 @@ export function ImageBatchTab({ token }: Props) {
   const [cardComprehensive, setCardComprehensive] = useState<Record<string, ComprehensiveAnalysis>>({})
   const [cardLoading, setCardLoading] = useState<Record<string, boolean>>({})
   const [cardError, setCardError] = useState<Record<string, string>>({})
+  const [extractedElements, setExtractedElements] = useState<Record<string, ExtractedElements>>({})
+  const [extractionLoading, setExtractionLoading] = useState<Record<string, boolean>>({})
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState<Record<string, boolean>>({})
+  const [confirmedElements, setConfirmedElements] = useState<Record<string, ExtractedElements>>({})
+  const [showExtractionPanel, setShowExtractionPanel] = useState(false)
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -72,6 +79,10 @@ export function ImageBatchTab({ token }: Props) {
     setCardComprehensive({})
     setCardLoading({})
     setCardError({})
+    setExtractedElements({})
+    setExtractionLoading({})
+    setAwaitingConfirmation({})
+    setConfirmedElements({})
     e.target.value = ''
   }
 
@@ -86,6 +97,10 @@ export function ImageBatchTab({ token }: Props) {
     setCardComprehensive({})
     setCardLoading({})
     setCardError({})
+    setExtractedElements({})
+    setExtractionLoading({})
+    setAwaitingConfirmation({})
+    setConfirmedElements({})
   }
 
   function handleStop() {
@@ -139,7 +154,26 @@ export function ImageBatchTab({ token }: Props) {
     })
   }
 
-  async function runComprehensive(card: ImageCard, freshToken: string) {
+  async function runExtraction(card: ImageCard, freshToken: string) {
+    if (!card.result?.roi_data) return
+    setExtractionLoading(prev => ({ ...prev, [card.id]: true }))
+    try {
+      const { base64, mime_type } = await fileToBase64(card.file)
+      const res = await fetch('/api/analyze/extract-elements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
+        body: JSON.stringify({ image_base64: base64, mime_type }),
+      })
+      const data = await res.json()
+      if (res.ok && data.extracted) {
+        setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted }))
+        setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
+      }
+    } catch { /* non-fatal — user can still click to manually open */ }
+    setExtractionLoading(prev => ({ ...prev, [card.id]: false }))
+  }
+
+  async function runComprehensive(card: ImageCard, freshToken: string, confirmed?: ExtractedElements) {
     if (!card.result?.roi_data) return
     setCardLoading(prev => ({ ...prev, [card.id]: true }))
     setCardError(prev => { const next = { ...prev }; delete next[card.id]; return next })
@@ -155,6 +189,7 @@ export function ImageBatchTab({ token }: Props) {
           mime_type,
           spend_usd: mode === 'historical' ? card.spend : undefined,
           analysis_id: card.analysisId,
+          confirmed_elements: confirmed,
         }),
       })
       const data = await res.json()
@@ -185,6 +220,10 @@ export function ImageBatchTab({ token }: Props) {
     setAnalyzing(true)
     setRoiAverages(null)
     setCardComprehensive({})
+    setExtractedElements({})
+    setExtractionLoading({})
+    setAwaitingConfirmation({})
+    setConfirmedElements({})
 
     const { data: { session } } = await supabase.auth.getSession()
     const freshToken = session?.access_token ?? token
@@ -249,22 +288,70 @@ export function ImageBatchTab({ token }: Props) {
       setRoiAverages(averages)
     }
 
-    // Run comprehensive analysis per card in parallel
-    await Promise.all(
-      cardsRef.current
-        .filter(c => c.status === 'complete')
-        .map(c => runComprehensive(c, freshToken))
-    )
+    const completedCards = cardsRef.current.filter(c => c.status === 'complete')
+    if (mode === 'historical') {
+      // Historical: run extraction first, wait for user to confirm before comprehensive
+      await Promise.all(completedCards.map(c => runExtraction(c, freshToken)))
+    } else {
+      // Feedback: run comprehensive automatically
+      await Promise.all(completedCards.map(c => runComprehensive(c, freshToken)))
+    }
 
     setAnalyzing(false)
   }
 
   async function handleCardClick(card: ImageCard) {
-    setSelectedCard(card)
-    if (cardComprehensive[card.id] || cardLoading[card.id]) return
-    if (!card.result?.roi_data) return
+    if (mode === 'historical') {
+      // Historical: show extraction panel if awaiting confirmation
+      if (awaitingConfirmation[card.id] && extractedElements[card.id]) {
+        setSelectedCard(card)
+        setShowExtractionPanel(true)
+        return
+      }
+      // If extraction is still loading, do nothing
+      if (extractionLoading[card.id]) return
+      // If already confirmed and comprehensive is ready/loading, open modal
+      if (confirmedElements[card.id] || cardComprehensive[card.id] || cardLoading[card.id]) {
+        setSelectedCard(card)
+        setShowExtractionPanel(false)
+        return
+      }
+      // BERG complete but extraction not started yet — start it
+      if (card.status === 'complete' && card.result?.roi_data) {
+        setSelectedCard(card)
+        setShowExtractionPanel(false)
+        const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+        runExtraction(card, freshToken)
+      }
+    } else {
+      setSelectedCard(card)
+      setShowExtractionPanel(false)
+      if (cardComprehensive[card.id] || cardLoading[card.id]) return
+      if (!card.result?.roi_data) return
+      const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+      runComprehensive(card, freshToken)
+    }
+  }
+
+  async function handleExtractionConfirm(confirmed: ExtractedElements) {
+    if (!selectedCard) return
+    const card = selectedCard
+    setConfirmedElements(prev => ({ ...prev, [card.id]: confirmed }))
+    setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
+    setShowExtractionPanel(false)
     const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-    runComprehensive(card, freshToken)
+    runComprehensive(card, freshToken, confirmed)
+  }
+
+  function handleExtractionSkip() {
+    if (!selectedCard) return
+    const card = selectedCard
+    setAwaitingConfirmation(prev => ({ ...prev, [card.id]: false }))
+    setShowExtractionPanel(false)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const freshToken = session?.access_token ?? token
+      runComprehensive(card, freshToken)
+    })
   }
 
   const doneCount = cards.filter(c => c.status === 'complete' || c.status === 'failed').length
@@ -381,6 +468,9 @@ export function ImageBatchTab({ token }: Props) {
               card={card}
               mode={mode}
               disabled={analyzing}
+              extractionLoading={extractionLoading[card.id]}
+              awaitingConfirmation={awaitingConfirmation[card.id]}
+              confirmed={!!confirmedElements[card.id]}
               onSpendChange={(v) => updateSpend(card.id, v)}
               onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
@@ -421,8 +511,20 @@ export function ImageBatchTab({ token }: Props) {
 
       {roiAverages && <AttributionFooter />}
 
+      {/* Extraction confirmation panel (historical mode) */}
+      {selectedCard && showExtractionPanel && extractedElements[selectedCard.id] && (
+        <ExtractionConfirmPanel
+          fileName={selectedCard.file.name}
+          previewUrl={selectedCard.previewUrl}
+          extracted={extractedElements[selectedCard.id]}
+          onConfirm={handleExtractionConfirm}
+          onSkip={handleExtractionSkip}
+          onClose={() => { setSelectedCard(null); setShowExtractionPanel(false) }}
+        />
+      )}
+
       {/* Detail modal */}
-      {selectedCard && (
+      {selectedCard && !showExtractionPanel && (
         <AdAnalysisModal
           card={{
             id: selectedCard.id,
@@ -438,8 +540,9 @@ export function ImageBatchTab({ token }: Props) {
           onClose={() => setSelectedCard(null)}
           onRetry={async () => {
             const card = selectedCard
+            const confirmed = confirmedElements[card.id]
             const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
-            runComprehensive(card, freshToken)
+            runComprehensive(card, freshToken, confirmed)
           }}
         />
       )}
@@ -448,11 +551,14 @@ export function ImageBatchTab({ token }: Props) {
 }
 
 function ImageResultCard({
-  card, mode, disabled, onSpendChange, onClick,
+  card, mode, disabled, extractionLoading, awaitingConfirmation, confirmed, onSpendChange, onClick,
 }: {
   card: ImageCard
   mode: Mode
   disabled: boolean
+  extractionLoading?: boolean
+  awaitingConfirmation?: boolean
+  confirmed?: boolean
   onSpendChange: (value: string) => void
   onClick?: () => void
 }) {
@@ -492,6 +598,15 @@ function ImageResultCard({
             <span className="text-[10px] bg-indigo-900/80 text-indigo-300 px-1.5 py-0.5 rounded animate-pulse">
               {card.status === 'uploading' ? 'uploading…' : 'analyzing…'}
             </span>
+          )}
+          {card.status === 'complete' && extractionLoading && (
+            <span className="text-[10px] bg-gray-900/80 text-gray-400 px-1.5 py-0.5 rounded animate-pulse">extracting…</span>
+          )}
+          {card.status === 'complete' && awaitingConfirmation && !extractionLoading && (
+            <span className="text-[10px] bg-yellow-900/80 text-yellow-300 px-1.5 py-0.5 rounded">confirm →</span>
+          )}
+          {card.status === 'complete' && confirmed && !awaitingConfirmation && !extractionLoading && (
+            <span className="text-[10px] bg-emerald-900/80 text-emerald-300 px-1.5 py-0.5 rounded">confirmed</span>
           )}
           {card.status === 'failed' && (
             <span className="text-[10px] bg-red-900/80 text-red-300 px-1.5 py-0.5 rounded">failed</span>
