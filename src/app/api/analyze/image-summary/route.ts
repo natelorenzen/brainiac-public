@@ -17,7 +17,7 @@ const anthropic = new Anthropic()
 // Set to true to enable extended thinking on both Sonnet calls.
 // Produces more thorough output at the cost of ~5–10s extra latency.
 const EXTENDED_THINKING = false
-const THINKING_BUDGET = 8000
+const THINKING_BUDGET = 10000
 
 export interface VisualAdAnalysis {
   cta_strength: { score: number; feedback: string }
@@ -83,13 +83,13 @@ async function runBergAnalysis(body: Record<string, unknown>): Promise<string> {
 
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: 8192,
     messages: [{ role: 'user', content: prompt }],
   }
 
   if (EXTENDED_THINKING) {
     params.thinking = { type: 'enabled', budget_tokens: THINKING_BUDGET }
-    params.max_tokens = THINKING_BUDGET + 1024
+    params.max_tokens = THINKING_BUDGET + 8192
   }
 
   const message = await anthropic.messages.create(params)
@@ -127,7 +127,7 @@ Return a JSON object with exactly this structure — no extra keys, no markdown 
 
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: 8192,
     messages: [{
       role: 'user',
       content: [
@@ -146,7 +146,7 @@ Return a JSON object with exactly this structure — no extra keys, no markdown 
 
   if (EXTENDED_THINKING) {
     params.thinking = { type: 'enabled', budget_tokens: THINKING_BUDGET }
-    params.max_tokens = THINKING_BUDGET + 1024
+    params.max_tokens = THINKING_BUDGET + 8192
   }
 
   try {
