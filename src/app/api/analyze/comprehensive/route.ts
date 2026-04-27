@@ -4,11 +4,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import {
   getWinningPatterns,
   getAllWinningAnalyses,
+  getLosingPatterns,
   storeComprehensiveAnalysis,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
+  type LosingPatternRow,
   type WinningAnalysisSummary,
 } from '@/lib/pattern-library'
+import { fetchRedditPosts, type RedditPost } from '@/lib/reddit'
 import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route'
 
 export const dynamic = 'force-dynamic'
@@ -145,8 +148,9 @@ const anthropic = new Anthropic({ timeout: 120000 })
 function buildPatternContext(
   patterns: PatternLibraryRow[],
   winningExamples: WinningAnalysisSummary[],
+  losingPatterns: LosingPatternRow[] = [],
 ): string {
-  if (patterns.length === 0 && winningExamples.length === 0) return ''
+  if (patterns.length === 0 && winningExamples.length === 0 && losingPatterns.length === 0) return ''
 
   const lines: string[] = []
 
@@ -154,6 +158,14 @@ function buildPatternContext(
     lines.push(`--- Winning Ad Patterns (derived from ads with $${WINNER_THRESHOLD_USD}+ spend) ---`)
     patterns.forEach((p, i) => {
       lines.push(`${i + 1}. [${p.category}] ${p.rule_text}`)
+    })
+  }
+
+  if (losingPatterns.length > 0) {
+    lines.push('')
+    lines.push(`--- Anti-Patterns (from ads that failed <$${WINNER_THRESHOLD_USD} spend — treat as warnings, not rules) ---`)
+    losingPatterns.forEach((p, i) => {
+      lines.push(`${i + 1}. [${p.category}] ${p.rule_text} (seen in ${p.loser_count} losers, confidence: ${p.confidence})`)
     })
   }
 
@@ -376,28 +388,6 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
   }
 }`
 
-interface RedditPost { title: string; url: string; snippet: string }
-
-async function fetchRedditPosts(topic: string): Promise<RedditPost[] | null> {
-  try {
-    const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(topic)}&sort=relevance&limit=5&type=link`
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Brainiac-AdAnalyzer/1.0' },
-    })
-    clearTimeout(timeout)
-    if (!res.ok) return null
-    const data = await res.json() as { data?: { children?: Array<{ data: { title: string; permalink: string; selftext?: string } }> } }
-    const posts = (data?.data?.children ?? []).map(c => ({
-      title: c.data.title,
-      url: `https://www.reddit.com${c.data.permalink}`,
-      snippet: (c.data.selftext ?? '').slice(0, 250).replace(/\n+/g, ' '),
-    })).filter(p => p.title).slice(0, 5)
-    return posts.length > 0 ? posts : null
-  } catch { return null }
-}
 
 function buildRedditBlock(topic: string, posts: RedditPost[]): string {
   const postLines = posts.map((p, i) =>
@@ -605,13 +595,14 @@ export async function POST(req: NextRequest) {
   const confirmed_elements: ExtractedElements | undefined = body.confirmed_elements
   const concept_topic: string | undefined = body.concept_topic
 
-  const [patterns, winningExamples, redditPosts] = await Promise.all([
+  const [patterns, winningExamples, losingPatterns, redditPosts] = await Promise.all([
     getWinningPatterns(),
     getAllWinningAnalyses(),
+    getLosingPatterns(),
     concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
   ])
 
-  const patternContext = buildPatternContext(patterns, winningExamples)
+  const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns)
   const visualDescription = confirmed_elements?.visual_description
 
   let bergText: string
@@ -636,7 +627,7 @@ export async function POST(req: NextRequest) {
   if (analysis_id) {
     await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
 
-    if (spend_usd !== undefined && spend_usd >= WINNER_THRESHOLD_USD) {
+    if (spend_usd !== undefined) {
       fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

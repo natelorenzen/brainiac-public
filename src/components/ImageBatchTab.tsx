@@ -587,6 +587,9 @@ export function ImageBatchTab({ token }: Props) {
           comprehensive={cardComprehensive[selectedCard.id]}
           loading={cardLoading[selectedCard.id]}
           error={cardError[selectedCard.id]}
+          confirmedElements={confirmedElements[selectedCard.id]}
+          conceptTopic={mode === 'feedback' ? conceptTopic.trim() || undefined : undefined}
+          token={token}
           onClose={() => setSelectedCard(null)}
           onRetry={async () => {
             const card = selectedCard
