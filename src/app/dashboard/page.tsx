@@ -7,18 +7,14 @@ import { ConsentGate } from '@/components/ConsentGate'
 import { UsageMeter } from '@/components/UsageMeter'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
-import { WebPageTab } from '@/components/WebPageTab'
 import { LogOut } from 'lucide-react'
 import type { UsageInfo, ConsentType } from '@/types'
-
-type Tab = 'images' | 'webpage'
 
 export default function DashboardPage() {
   const router = useRouter()
   const [token, setToken] = useState<string | null>(null)
   const [consentDone, setConsentDone] = useState<boolean | null>(null)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>('images')
   const [theme, setTheme] = useState<'dark' | 'light'>('light')
   const [mounted, setMounted] = useState(false)
 
@@ -100,29 +96,7 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        {/* Tab switcher */}
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
-          {([
-            ['images', 'Ad Creative'],
-            ['webpage', 'Landing Page'],
-          ] as [Tab, string][]).map(([tab, label]) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={[
-                'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
-                activeTab === tab
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-gray-400 hover:text-gray-200',
-              ].join(' ')}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Ad Creative tab ───────────────────────────────────────────────── */}
-        {activeTab === 'images' && token && (
+        {token && (
           <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
             <div className="mb-5">
               <h2 className="text-sm font-semibold text-white">Static Ad Intelligence</h2>
@@ -133,13 +107,6 @@ export default function DashboardPage() {
               </p>
             </div>
             <ImageBatchTab token={token} />
-          </div>
-        )}
-
-        {/* ── Landing Page tab ──────────────────────────────────────────────── */}
-        {activeTab === 'webpage' && token && (
-          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-            <WebPageTab token={token} />
           </div>
         )}
 
