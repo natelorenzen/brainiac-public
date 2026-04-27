@@ -397,8 +397,8 @@ export function ImageBatchTab({ token }: Props) {
               disabled={analyzing || (m === 'feedback' && feedbackLocked)}
               title={m === 'feedback' && feedbackLocked ? `Unlocks after ${10 - (userAdCount ?? 0)} more historical ads` : undefined}
               className={[
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                mode === m ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-200',
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                mode === m ? 'bg-indigo-600 text-[#fff] shadow-sm' : 'text-gray-400 hover:text-gray-200',
                 m === 'feedback' && feedbackLocked ? 'opacity-40 cursor-not-allowed' : '',
               ].join(' ')}
             >
@@ -471,7 +471,7 @@ export function ImageBatchTab({ token }: Props) {
       {cards.length > 0 && !analyzing && doneCount === 0 && (
         <button
           onClick={handleAnalyze}
-          className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium transition-all shadow-sm hover:shadow-md"
         >
           Analyze {cards.length} ad{cards.length > 1 ? 's' : ''}
         </button>

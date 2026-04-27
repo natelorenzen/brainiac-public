@@ -96,7 +96,7 @@ function ViewPanel({
           <img src={view.result.heatmap_url} alt="Heatmap" className="absolute inset-0 w-full h-full object-cover" style={{ opacity: 0.65 }} />
         )}
         {isAnalyzing && (
-          <div className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/70 px-2 py-1 text-xs text-white">
+          <div className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-black/70 px-2 py-1 text-xs text-[#fff] rounded-md backdrop-blur-sm">
             <div className="w-2.5 h-2.5 border border-indigo-400 border-t-transparent rounded-full animate-spin" />
             Analyzing…
           </div>
@@ -278,7 +278,7 @@ export function WebPageTab({ token }: Props) {
             className="flex-1 px-3 py-2 text-sm"
           />
           <button type="submit" disabled={!url.trim()}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium transition-colors">
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-sm font-medium rounded-lg shadow-sm transition-colors">
             Analyze
           </button>
         </form>

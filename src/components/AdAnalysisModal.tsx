@@ -134,7 +134,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
           )}
           <button
             onClick={onClose}
-            className="absolute top-2 right-2 p-1 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-[#fff] transition-all backdrop-blur-sm"
           >
             <X className="w-4 h-4" />
           </button>

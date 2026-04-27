@@ -56,7 +56,7 @@ export function ConnectedAccounts({ accounts, hasAdConsent, authToken, onUpdate 
         <button
           onClick={handleConnect}
           disabled={consentingToAds}
-          className="flex items-center gap-2 text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg
+          className="flex items-center gap-2 text-xs px-3 py-1.5 bg-indigo-600 text-[#fff] rounded-lg
                      hover:bg-indigo-500 transition-colors disabled:opacity-50"
         >
           <ExternalLink className="w-3 h-3" />

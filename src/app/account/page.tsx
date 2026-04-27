@@ -172,8 +172,8 @@ function AccountPageInner() {
                 <button
                   onClick={handleDeleteAccount}
                   disabled={deleting}
-                  className="px-4 py-2 text-sm bg-red-700 text-white rounded-lg
-                             hover:bg-red-600 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-sm bg-red-700 text-[#fff] rounded-lg
+                             hover:bg-red-600 transition-colors disabled:opacity-50 shadow-sm"
                 >
                   {deleting ? 'Scheduling deletion…' : 'Yes, delete my account'}
                 </button>

@@ -1,56 +1,91 @@
 @import "tailwindcss";
 
-/* ── Openberg design tokens — light (default) ──────────────────────────── */
+/* ── Brainiac design tokens — Apple-inspired light (default) ───────────── */
 :root {
-  --ink:          #f4f1ea;
-  --ink-soft:     #f8f6f2;
-  --paper:        #0a0a0a;
-  --paper-pure:   #000000;
+  /* Page surfaces */
+  --ink:          #FAFAFA;   /* page background */
+  --ink-soft:     #F4F4F5;   /* subtle elevated surface */
+  --paper:        #0F1317;   /* primary text */
+  --paper-pure:   #000000;   /* highest contrast text */
 
-  --graphite-9:   #ffffff;
-  --graphite-8:   #c8c5be;
-  --graphite-7:   #a8a5a0;
-  --graphite-6:   #5c5a57;
-  --graphite-5:   #6e6c69;
-  --graphite-4:   #3d3b39;
-  --graphite-3:   #2b2928;
-  --graphite-2:   #1c1a19;
-  --graphite-1:   #0f0e0d;
+  /* Graphite scale — interpreted as gray-* (gray-950 = ink, white = paper) */
+  --graphite-9:   #FFFFFF;   /* card surfaces */
+  --graphite-8:   #E5E5E7;   /* default borders, hairline separators */
+  --graphite-7:   #D4D4D8;   /* stronger borders / hover */
+  --graphite-6:   #A1A1AA;   /* tertiary text / subtle icons */
+  --graphite-5:   #71717A;   /* secondary text (Apple secondary label) */
+  --graphite-4:   #52525B;   /* body muted */
+  --graphite-3:   #3F3F46;   /* body text */
+  --graphite-2:   #27272A;   /* strong text */
+  --graphite-1:   #18181B;   /* deepest text */
 
-  --accent:       #2563eb;
-  --accent-dim:   #1d4ed8;
-  --ok:           #16a34a;
-  --alarm:        #dc2626;
-  --rule:         #c8c5be;
-  --rule-bright:  #a8a5a0;
+  /* Brand accent */
+  --accent:       #ff2a2b;
+  --accent-dim:   #d92223;
+  --accent-soft:  #fff1f1;
 
-  --font-sans: var(--font-plex-sans), "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+  /* Semantic */
+  --ok:           #22c55e;
+  --ok-soft:      #dcfce7;
+  --alarm:        #ff2a2b;
+  --warn:         #f59e0b;
+
+  /* Rules */
+  --rule:         #E5E5E7;
+  --rule-bright:  #D4D4D8;
+
+  /* Typography */
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Apple-inspired motion curves */
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);     /* smooth landing */
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);    /* general */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1); /* slight overshoot */
+  --ease-default:  cubic-bezier(0.32, 0.72, 0, 1);    /* Apple default */
+
+  /* Shadow ramp */
+  --shadow-xs:  0 1px 2px rgba(15, 19, 23, 0.04);
+  --shadow-sm:  0 1px 3px rgba(15, 19, 23, 0.06), 0 1px 2px rgba(15, 19, 23, 0.04);
+  --shadow-md:  0 4px 16px rgba(15, 19, 23, 0.06), 0 2px 4px rgba(15, 19, 23, 0.04);
+  --shadow-lg:  0 12px 40px rgba(15, 19, 23, 0.08), 0 4px 12px rgba(15, 19, 23, 0.04);
+  --shadow-xl:  0 24px 60px rgba(15, 19, 23, 0.12), 0 8px 24px rgba(15, 19, 23, 0.06);
 }
 
 /* ── Dark mode ─────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --ink:          #000000;
-  --ink-soft:     #0a0a0a;
-  --paper:        #f4f1ea;
-  --paper-pure:   #ffffff;
+  --ink:          #0F1317;
+  --ink-soft:     #181C20;
+  --paper:        #FAFAFA;
+  --paper-pure:   #FFFFFF;
 
-  --graphite-9:   #141414;
-  --graphite-8:   #1a1a1a;
-  --graphite-7:   #242424;
-  --graphite-6:   #333333;
-  --graphite-5:   #4d4d4d;
-  --graphite-4:   #6e6e6e;
-  --graphite-3:   #8f8f8f;
-  --graphite-2:   #b3b3b3;
-  --graphite-1:   #d0d0d0;
+  --graphite-9:   #1C2025;
+  --graphite-8:   #272B30;
+  --graphite-7:   #34383D;
+  --graphite-6:   #4A4F55;
+  --graphite-5:   #6B7079;
+  --graphite-4:   #8C9098;
+  --graphite-3:   #B4B7BD;
+  --graphite-2:   #D6D8DC;
+  --graphite-1:   #ECEEEF;
 
-  --accent:       #60a5fa;
-  --accent-dim:   #3b82f6;
+  --accent:       #ff4546;
+  --accent-dim:   #ff2a2b;
+  --accent-soft:  #2a1416;
+
   --ok:           #4ade80;
-  --alarm:        #f87171;
-  --rule:         #2a2a2a;
-  --rule-bright:  #444444;
+  --ok-soft:      #14271f;
+  --alarm:        #ff4546;
+  --warn:         #fbbf24;
+
+  --rule:         #272B30;
+  --rule-bright:  #34383D;
+
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-xl:  0 24px 60px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* ── Tailwind theme overrides ──────────────────────────────────────────── */
@@ -60,9 +95,9 @@
 
   /* Body colors tied to CSS vars — flip automatically with theme */
   --color-white:    var(--paper);
-  --color-black:    var(--ink);
+  --color-black:    var(--paper-pure);
 
-  /* Gray scale → openberg graphite */
+  /* Gray scale → light-mode neutrals (inverted naming preserved) */
   --color-gray-950: var(--ink);
   --color-gray-900: var(--graphite-9);
   --color-gray-800: var(--graphite-8);
@@ -74,26 +109,27 @@
   --color-gray-200: var(--graphite-2);
   --color-gray-100: var(--graphite-1);
 
-  /* Remap indigo → accent (blue in light, lighter blue in dark) */
-  --color-indigo-300: color-mix(in srgb, var(--accent) 60%, white);
-  --color-indigo-400: color-mix(in srgb, var(--accent) 80%, white);
+  /* Indigo → brand accent (red) — kept tight so progress bars / accent text are full brand */
+  --color-indigo-300: color-mix(in srgb, var(--accent) 35%, white);
+  --color-indigo-400: var(--accent);
   --color-indigo-500: var(--accent);
   --color-indigo-600: var(--accent);
   --color-indigo-700: var(--accent-dim);
+  --color-indigo-800: var(--accent-dim);
+  --color-indigo-900: color-mix(in srgb, var(--accent-dim) 70%, black);
 }
 
 /* ── Global resets ─────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after {
     box-sizing: border-box;
-    border-radius: 0 !important;
-    box-shadow: none !important;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-size: 13px;
+    text-rendering: optimizeLegibility;
+    font-size: 14px;
   }
 
   body {
@@ -101,112 +137,186 @@
     color: var(--paper);
     font-family: var(--font-sans);
     line-height: 1.5;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    letter-spacing: -0.005em;
+    transition: background-color 0.2s var(--ease-default), color 0.2s var(--ease-default);
+  }
+
+  /* Apple-style fluid transitions on common interactive elements */
+  button, a, [role="button"] {
+    transition:
+      color 0.18s var(--ease-default),
+      background-color 0.18s var(--ease-default),
+      border-color 0.18s var(--ease-default),
+      transform 0.18s var(--ease-default),
+      opacity 0.18s var(--ease-default),
+      box-shadow 0.2s var(--ease-default);
+  }
+
+  button:not(:disabled):active, a:active, [role="button"]:active {
+    transform: scale(0.98);
   }
 
   ::selection {
     background-color: var(--accent);
-    color: var(--ink);
+    color: #ffffff;
   }
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: var(--ink); }
-  ::-webkit-scrollbar-thumb { background: var(--graphite-6); }
-  ::-webkit-scrollbar-thumb:hover { background: var(--graphite-5); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--graphite-7);
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--graphite-6); }
 
   input, textarea, select {
-    font-family: var(--font-mono);
-    background: var(--ink);
+    font-family: var(--font-sans);
+    background: var(--graphite-9);
     color: var(--paper);
     border: 1px solid var(--rule);
-    transition: border-color 0.1s;
+    transition: border-color 0.18s var(--ease-default), box-shadow 0.18s var(--ease-default);
   }
 
   input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   input::placeholder, textarea::placeholder {
-    color: var(--graphite-5);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    font-size: 10px;
+    color: var(--graphite-6);
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: inherit;
+    font-family: var(--font-sans);
   }
+
+  /* Smooth image rendering */
+  img { -webkit-user-drag: none; }
 }
 
-/* ── Openberg utility classes ──────────────────────────────────────────── */
+/* ── Utility classes ───────────────────────────────────────────────────── */
 @layer utilities {
   .t-meta {
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--graphite-3);
+    color: var(--graphite-5);
   }
 
   .t-label {
     font-family: var(--font-mono);
     font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--paper);
   }
 
   .panel {
-    background: var(--ink-soft);
+    background: var(--graphite-9);
     border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
   }
 
   .panel-header {
     display: flex;
     align-items: stretch;
     border-bottom: 1px solid var(--rule);
-    background: var(--ink);
   }
 
   .panel-label {
-    padding: 6px 10px;
+    padding: 10px 14px;
     font-family: var(--font-mono);
     font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--paper);
     border-right: 1px solid var(--rule);
   }
 
   .panel-meta {
-    padding: 6px 10px;
+    padding: 10px 14px;
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--graphite-3);
+    color: var(--graphite-5);
     margin-left: auto;
   }
 
   /* Theme toggle button */
   .theme-toggle {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--graphite-3);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--graphite-5);
     border: 1px solid var(--rule);
-    padding: 4px 10px;
+    border-radius: 999px;
+    padding: 5px 12px;
     background: transparent;
     cursor: pointer;
-    transition: color 0.1s, border-color 0.1s;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
   }
 
   .theme-toggle:hover {
     color: var(--paper);
-    border-color: var(--accent);
+    border-color: var(--graphite-6);
+    background: var(--graphite-9);
+  }
+
+  /* Apple-style focus ring */
+  .focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+
+  /* Card hover lift */
+  .card-lift {
+    transition:
+      transform 0.25s var(--ease-default),
+      box-shadow 0.25s var(--ease-default),
+      border-color 0.25s var(--ease-default);
+  }
+
+  .card-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
   }
 }
 
+/* ── Entrance animations ───────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+@layer utilities {
+  .animate-fade-in   { animation: fade-in 0.3s var(--ease-out) both; }
+  .animate-fade-up   { animation: fade-up 0.4s var(--ease-out) both; }
+  .animate-scale-in  { animation: scale-in 0.25s var(--ease-out) both; }
+  .animate-pulse-soft { animation: pulse-soft 1.6s var(--ease-in-out) infinite; }
+}

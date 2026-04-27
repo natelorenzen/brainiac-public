@@ -148,7 +148,7 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
           </button>
           <button
             onClick={() => onConfirm(fields)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-[#ff2a2b] hover:bg-red-500 text-white transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-[#ff2a2b] hover:bg-[#ff4445] text-[#fff] transition-colors shadow-sm"
           >
             <Check className="w-3.5 h-3.5" />
             Confirm &amp; analyze
