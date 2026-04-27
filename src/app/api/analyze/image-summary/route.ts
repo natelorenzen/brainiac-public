@@ -3,7 +3,7 @@ import { supabaseServer } from '@/lib/supabase-server'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 45
+export const maxDuration = 60
 
 interface ROIAverage {
   region_key: string
@@ -14,6 +14,11 @@ interface ROIAverage {
 
 const anthropic = new Anthropic()
 
+// Set to true to enable extended thinking on both Sonnet calls.
+// Produces more thorough output at the cost of ~5–10s extra latency.
+const EXTENDED_THINKING = false
+const THINKING_BUDGET = 8000
+
 export interface VisualAdAnalysis {
   cta_strength: { score: number; feedback: string }
   emotional_appeal: { score: number; feedback: string }
@@ -22,9 +27,9 @@ export interface VisualAdAnalysis {
   overall_verdict: string
 }
 
-// ── Prompt builders ───────────────────────────────────────────────────────────
+// ── Call 1: BERG-based ad recommendations (text only) ────────────────────────
 
-function buildPrompt(body: Record<string, unknown>, hasImage: boolean): string {
+function buildBergPrompt(body: Record<string, unknown>): string {
   const context = body.context as string | undefined
 
   if (context === 'webpage_desktop' || context === 'webpage_mobile') {
@@ -35,7 +40,7 @@ function buildPrompt(body: Record<string, unknown>, hasImage: boolean): string {
 
     return `You are interpreting BERG fMRI brain activation predictions for an ad landing page screenshot captured on ${viewport}.
 
-BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1.
+BERG predicts which visual cortex regions activate when a person views the page above the fold. Scores are normalized 0–1. Higher scores mean stronger predicted neural engagement with that type of visual processing.
 
 Page: ${page_url}
 Viewport: ${viewport}
@@ -43,72 +48,116 @@ Viewport: ${viewport}
 Brain activation scores:
 ${lines}
 
-Give 4–5 specific, actionable design suggestions to improve this landing page's ability to convert ad traffic. Ground each suggestion in the specific region scores (e.g. "FFA score of 0.12 is low — add a human face near the headline to drive trust and attention"). Consider layout differences appropriate for ${context === 'webpage_desktop' ? 'desktop (wide viewport, mouse interaction)' : 'mobile (narrow viewport, thumb reach, smaller text)'}.
+Give 4–5 specific, actionable design suggestions to improve this landing page's ability to convert ad traffic. Ground every suggestion in a specific region score — name the region, quote the score, and explain the implication. Consider layout differences appropriate for ${context === 'webpage_desktop' ? 'desktop (wide viewport, mouse interaction)' : 'mobile (narrow viewport, thumb reach, smaller text)'}.
 
-Format as a markdown bulleted list. Each bullet is one to two sentences. Do not guarantee business outcomes.`
+Do not skip any region with a notably high or low score. Format as a markdown bulleted list. Each bullet is two to three sentences. Do not guarantee business outcomes.`
   }
 
   const roi_averages = body.roi_averages as ROIAverage[]
   const image_count = body.image_count as number
   const scoreLines = roi_averages.map(r => `- ${r.label}: ${r.activation.toFixed(3)} — ${r.description}`).join('\n')
 
-  if (hasImage) {
-    // Single ad image with vision — one call returns both BERG analysis and ad dimension scores
-    return `You are a senior advertising creative director and neuroscience analyst reviewing a static ad image alongside its BERG fMRI brain activation scores.
-
-BERG predicts which visual cortex regions activate when a viewer sees this ad. Scores are normalized 0–1.
-
-BERG brain activation scores:
-${scoreLines}
-
-Your task is to return a JSON object with exactly this structure — no extra keys, no markdown fences:
-{
-  "berg_recommendations": [
-    "<bullet 1: one to two sentences grounded in a specific BERG region score>",
-    "<bullet 2>",
-    "<bullet 3>",
-    "<bullet 4>"
-  ],
-  "cta_strength": {
-    "score": <integer 1-10>,
-    "feedback": "<one sentence: is the CTA clear, prominent, and compelling?>"
-  },
-  "emotional_appeal": {
-    "score": <integer 1-10>,
-    "feedback": "<one sentence: does the image evoke a clear emotional response relevant to the product or offer?>"
-  },
-  "brand_clarity": {
-    "score": <integer 1-10>,
-    "feedback": "<one sentence: is the brand identity — logo, colors, tone — immediately recognizable?>"
-  },
-  "visual_hierarchy": {
-    "score": <integer 1-10>,
-    "feedback": "<one sentence: does the layout guide the viewer's eye from headline to supporting content to CTA?>"
-  },
-  "overall_verdict": "<two to three sentences: top strength, biggest weakness, single highest-priority fix>"
-}
-
-Use both the image and the BERG scores together. Reference specific region names and scores in berg_recommendations.`
-  }
-
-  // Text-only — batch averages or single without image
   return image_count === 1
     ? `You are interpreting BERG fMRI brain activation predictions for a static ad image.
+
+BERG predicts which visual cortex regions activate when a viewer sees this ad. Scores are normalized 0–1.
 
 Brain activation scores:
 ${scoreLines}
 
-Give 3–4 specific, actionable suggestions to improve this ad's visual impact and attention capture for paid media performance. Reference specific region names and scores. Do not guarantee outcomes.
+Give 4–5 specific, actionable suggestions to improve this ad's visual impact for paid media performance. For each suggestion, name the region, quote the score, explain what it means about the creative, and state the specific change to make. Do not skip any region with a notably high or low score.
 
-Format as a markdown bulleted list. Each bullet is one to two sentences.`
+Format as a markdown bulleted list. Each bullet is two to three sentences. Do not guarantee outcomes.`
     : `You are interpreting BERG fMRI brain activation predictions for a batch of ${image_count} static ad images.
 
 Average activation across all ${image_count} ads:
 ${scoreLines}
 
-Give 4–5 concise, actionable design suggestions for improving this creative set's performance in paid media. Reference specific region names and scores. Do not guarantee outcomes.
+Give 5–6 concise, actionable design suggestions for improving this creative set's performance in paid media. Cover every region — name it, quote the score, and give a concrete recommendation. Do not skip or combine regions to save space.
 
-Format as a markdown bulleted list. Each bullet is one to two sentences.`
+Format as a markdown bulleted list. Each bullet is two to three sentences. Do not guarantee outcomes.`
+}
+
+async function runBergAnalysis(body: Record<string, unknown>): Promise<string> {
+  const prompt = buildBergPrompt(body)
+
+  const params: Anthropic.MessageCreateParamsNonStreaming = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: prompt }],
+  }
+
+  if (EXTENDED_THINKING) {
+    params.thinking = { type: 'enabled', budget_tokens: THINKING_BUDGET }
+    params.max_tokens = THINKING_BUDGET + 1024
+  }
+
+  const message = await anthropic.messages.create(params)
+  const textBlock = message.content.find(b => b.type === 'text')
+  return textBlock?.type === 'text' ? textBlock.text : ''
+}
+
+// ── Call 2: Sonnet vision ad-dimension scoring ────────────────────────────────
+
+async function runAdDimensionAnalysis(image_base64: string, mime_type: string): Promise<VisualAdAnalysis | null> {
+  const prompt = `You are an expert advertising creative director analyzing a static ad image for paid media performance potential.
+
+Score the ad on these four dimensions. Be specific — reference what you actually see in the image (colors, layout, copy, imagery) to justify each score. Do not give generic feedback.
+
+Return a JSON object with exactly this structure — no extra keys, no markdown fences:
+{
+  "cta_strength": {
+    "score": <integer 1-10>,
+    "feedback": "<two sentences: what specifically makes the CTA strong or weak, and what exact change would improve it>"
+  },
+  "emotional_appeal": {
+    "score": <integer 1-10>,
+    "feedback": "<two sentences: what emotion does the image evoke or fail to evoke, and why>"
+  },
+  "brand_clarity": {
+    "score": <integer 1-10>,
+    "feedback": "<two sentences: what brand signals are present or missing, and what would make the brand more immediately recognizable>"
+  },
+  "visual_hierarchy": {
+    "score": <integer 1-10>,
+    "feedback": "<two sentences: describe the actual eye path the layout creates and whether it serves the ad's goal>"
+  },
+  "overall_verdict": "<three to four sentences: name the single strongest element with a reason, name the single biggest weakness with a reason, and give the one highest-priority fix>"
+}`
+
+  const params: Anthropic.MessageCreateParamsNonStreaming = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mime_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: image_base64,
+          },
+        },
+        { type: 'text', text: prompt },
+      ],
+    }],
+  }
+
+  if (EXTENDED_THINKING) {
+    params.thinking = { type: 'enabled', budget_tokens: THINKING_BUDGET }
+    params.max_tokens = THINKING_BUDGET + 1024
+  }
+
+  try {
+    const message = await anthropic.messages.create(params)
+    const textBlock = message.content.find(b => b.type === 'text')
+    const raw = textBlock?.type === 'text' ? textBlock.text : ''
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    return JSON.parse(cleaned) as VisualAdAnalysis
+  } catch {
+    return null
+  }
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -125,55 +174,14 @@ export async function POST(req: NextRequest) {
 
   const image_base64: string | undefined = body.image_base64
   const mime_type: string = body.mime_type ?? 'image/jpeg'
-  const hasImage = !!image_base64
 
-  const prompt = buildPrompt(body, hasImage)
+  const [summary, visual_analysis] = await Promise.all([
+    runBergAnalysis(body),
+    image_base64 ? runAdDimensionAnalysis(image_base64, mime_type) : Promise.resolve(null),
+  ])
 
-  const content: Anthropic.MessageParam['content'] = hasImage
-    ? [
-        {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: mime_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-            data: image_base64!,
-          },
-        },
-        { type: 'text', text: prompt },
-      ]
-    : prompt
-
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 768,
-    messages: [{ role: 'user', content }],
+  return NextResponse.json({
+    summary,
+    ...(visual_analysis ? { visual_analysis } : {}),
   })
-
-  const raw = message.content[0].type === 'text' ? message.content[0].text : ''
-
-  if (hasImage) {
-    try {
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned)
-
-      const summary = (parsed.berg_recommendations as string[])
-        .map((b: string) => `- ${b}`)
-        .join('\n')
-
-      const visual_analysis: VisualAdAnalysis = {
-        cta_strength: parsed.cta_strength,
-        emotional_appeal: parsed.emotional_appeal,
-        brand_clarity: parsed.brand_clarity,
-        visual_hierarchy: parsed.visual_hierarchy,
-        overall_verdict: parsed.overall_verdict,
-      }
-
-      return NextResponse.json({ summary, visual_analysis })
-    } catch {
-      // If JSON parse fails, return raw text as summary only
-      return NextResponse.json({ summary: raw })
-    }
-  }
-
-  return NextResponse.json({ summary: raw })
 }
