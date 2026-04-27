@@ -128,7 +128,7 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-white">Static Ad Analyzer</h2>
               <p className="text-xs text-gray-500 mt-1">
                 Upload up to 25 static ad images. Each is analyzed with BERG for brain activation scores,
-                then assessed by Llama 4 Maverick for ad-specific dimensions: CTA strength, emotional appeal,
+                then assessed by Claude Sonnet for ad-specific dimensions: CTA strength, emotional appeal,
                 brand clarity, and visual hierarchy.
               </p>
             </div>

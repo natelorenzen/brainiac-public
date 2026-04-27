@@ -479,20 +479,20 @@ export function ImageBatchTab({ token }: Props) {
                 </div>
               )}
 
-              {/* Llama 4 Maverick visual ad analysis */}
+              {/* Sonnet vision ad analysis */}
               {(() => {
                 const va = cardVisualAnalysis[selectedCard.id]
                 if (!va && !cardSuggestionsLoading[selectedCard.id]) return null
                 if (cardSuggestionsLoading[selectedCard.id] && !va) return (
                   <div className="border-t border-gray-800 pt-4 flex items-center gap-2 text-xs text-gray-500">
                     <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
-                    Running Llama 4 Maverick analysis…
+                    Running Sonnet vision analysis…
                   </div>
                 )
                 if (!va) return null
                 return (
                   <div className="border-t border-gray-800 pt-4 space-y-3">
-                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ad Dimensions — Llama 4 Maverick</p>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ad Dimensions — Claude Sonnet</p>
                     {(
                       [
                         ['CTA Strength', va.cta_strength],

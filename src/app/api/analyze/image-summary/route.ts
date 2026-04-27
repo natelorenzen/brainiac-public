@@ -14,7 +14,7 @@ interface ROIAverage {
 
 const anthropic = new Anthropic()
 
-// ── Llama 4 Maverick ad-dimension analysis ────────────────────────────────────
+// ── Sonnet vision ad-dimension analysis ──────────────────────────────────────
 
 export interface VisualAdAnalysis {
   cta_strength: { score: number; feedback: string }
@@ -24,15 +24,10 @@ export interface VisualAdAnalysis {
   overall_verdict: string
 }
 
-async function runLlama4AdAnalysis(image_base64: string, mime_type: string): Promise<VisualAdAnalysis | null> {
-  const apiKey = process.env.TOGETHER_API_KEY
-  if (!apiKey) return null
+async function runSonnetAdAnalysis(image_base64: string, mime_type: string): Promise<VisualAdAnalysis | null> {
+  const prompt = `You are an expert advertising creative director analyzing a static ad image for paid media performance potential.
 
-  const systemPrompt = `You are an expert advertising creative director analyzing static ad images for performance potential. You evaluate ads on four dimensions and return structured JSON.`
-
-  const userPrompt = `Analyze this static ad image for advertising effectiveness. Consider it as a paid media creative (social, display, or OOH).
-
-Return a JSON object with exactly this structure — no extra keys, no markdown fences:
+Evaluate the ad on exactly these four dimensions and return a JSON object with this structure — no extra keys, no markdown fences:
 {
   "cta_strength": {
     "score": <integer 1-10>,
@@ -40,52 +35,36 @@ Return a JSON object with exactly this structure — no extra keys, no markdown 
   },
   "emotional_appeal": {
     "score": <integer 1-10>,
-    "feedback": "<one sentence: does the image evoke a clear emotional response relevant to the product/offer?>"
+    "feedback": "<one sentence: does the image evoke a clear emotional response relevant to the product or offer?>"
   },
   "brand_clarity": {
     "score": <integer 1-10>,
-    "feedback": "<one sentence: is the brand identity (logo, colors, tone) immediately recognizable?>"
+    "feedback": "<one sentence: is the brand identity — logo, colors, tone — immediately recognizable?>"
   },
   "visual_hierarchy": {
     "score": <integer 1-10>,
     "feedback": "<one sentence: does the layout guide the viewer's eye from headline to supporting content to CTA?>"
   },
-  "overall_verdict": "<two to three sentences: top strength, biggest weakness, single highest-priority fix>"
+  "overall_verdict": "<two to three sentences: name the single strongest element, the single biggest weakness, and the one highest-priority fix>"
 }`
 
   try {
-    const res = await fetch('https://api.together.xyz/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
-        max_tokens: 512,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: systemPrompt },
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
           {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: { url: `data:${mime_type};base64,${image_base64}` },
-              },
-              { type: 'text', text: userPrompt },
-            ],
+            type: 'image',
+            source: { type: 'base64', media_type: mime_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: image_base64 },
           },
+          { type: 'text', text: prompt },
         ],
-      }),
+      }],
     })
 
-    if (!res.ok) return null
-
-    const data = await res.json()
-    const raw: string = data?.choices?.[0]?.message?.content ?? ''
-
-    // Strip markdown fences if the model adds them despite instructions
+    const raw = message.content[0].type === 'text' ? message.content[0].text : ''
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     return JSON.parse(cleaned) as VisualAdAnalysis
   } catch {
@@ -171,14 +150,14 @@ export async function POST(req: NextRequest) {
 
   const bergPrompt = buildBergPrompt(body)
 
-  // Run BERG recommendations (Claude) and Llama 4 ad analysis in parallel when image provided
+  // Run BERG text recommendations (Haiku) and Sonnet vision ad analysis in parallel
   const [claudeMessage, visual_analysis] = await Promise.all([
     anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       messages: [{ role: 'user', content: bergPrompt }],
     }),
-    image_base64 ? runLlama4AdAnalysis(image_base64, mime_type) : Promise.resolve(null),
+    image_base64 ? runSonnetAdAnalysis(image_base64, mime_type) : Promise.resolve(null),
   ])
 
   const summary = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : ''

@@ -53,7 +53,7 @@ export default function LandingPage() {
 
             <p className="text-gray-400 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
               Upload a static ad image. Brainiac runs BERG fMRI brain activation analysis
-              and Llama&nbsp;4 Maverick to tell you exactly how the brain processes your creative
+              and Claude&nbsp;Sonnet to tell you exactly how the brain processes your creative
               — and how to make it work harder.
             </p>
 
@@ -103,7 +103,7 @@ export default function LandingPage() {
               {
                 icon: '📊',
                 title: 'Ad dimension scoring',
-                body: 'Llama 4 Maverick analyzes the image directly and scores CTA strength, emotional appeal, brand clarity, and visual hierarchy — each with actionable feedback.',
+                body: 'Claude Sonnet analyzes the image directly and scores CTA strength, emotional appeal, brand clarity, and visual hierarchy — each with actionable feedback.',
               },
               {
                 icon: '🔥',
@@ -139,7 +139,7 @@ export default function LandingPage() {
                 {
                   step: '02',
                   title: 'Dual-model analysis',
-                  body: 'BERG encodes the image against fMRI responses across 6 visual cortex ROIs. Llama 4 Maverick scores the same image for ad-specific creative dimensions.',
+                  body: 'BERG encodes the image against fMRI responses across 6 visual cortex ROIs. Claude Sonnet scores the same image for ad-specific creative dimensions.',
                 },
                 {
                   step: '03',
@@ -188,7 +188,7 @@ export default function LandingPage() {
 
           <div>
             <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-600 mb-4">
-              Ad dimensions — Llama 4 Maverick
+              Ad dimensions — Claude Sonnet
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
