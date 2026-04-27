@@ -49,6 +49,7 @@ export function ImageBatchTab({ token }: Props) {
   const [roiAverages, setRoiAverages] = useState<ROIAverage[] | null>(null)
   const [cardComprehensive, setCardComprehensive] = useState<Record<string, ComprehensiveAnalysis>>({})
   const [cardLoading, setCardLoading] = useState<Record<string, boolean>>({})
+  const [cardError, setCardError] = useState<Record<string, string>>({})
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -70,6 +71,7 @@ export function ImageBatchTab({ token }: Props) {
     setRoiAverages(null)
     setCardComprehensive({})
     setCardLoading({})
+    setCardError({})
     e.target.value = ''
   }
 
@@ -83,6 +85,7 @@ export function ImageBatchTab({ token }: Props) {
     setAnalyzing(false)
     setCardComprehensive({})
     setCardLoading({})
+    setCardError({})
   }
 
   function handleStop() {
@@ -139,6 +142,7 @@ export function ImageBatchTab({ token }: Props) {
   async function runComprehensive(card: ImageCard, freshToken: string) {
     if (!card.result?.roi_data) return
     setCardLoading(prev => ({ ...prev, [card.id]: true }))
+    setCardError(prev => { const next = { ...prev }; delete next[card.id]; return next })
     try {
       const { base64, mime_type } = await fileToBase64(card.file)
       const res = await fetch('/api/analyze/comprehensive', {
@@ -154,10 +158,16 @@ export function ImageBatchTab({ token }: Props) {
         }),
       })
       const data = await res.json()
-      if (data.comprehensive) {
+      if (!res.ok) {
+        setCardError(prev => ({ ...prev, [card.id]: data.error ?? `Analysis failed (${res.status})` }))
+      } else if (data.comprehensive) {
         setCardComprehensive(prev => ({ ...prev, [card.id]: data.comprehensive }))
+      } else {
+        setCardError(prev => ({ ...prev, [card.id]: 'No analysis data returned' }))
       }
-    } catch { /* non-fatal */ }
+    } catch (e) {
+      setCardError(prev => ({ ...prev, [card.id]: e instanceof Error ? e.message : 'Network error' }))
+    }
     setCardLoading(prev => ({ ...prev, [card.id]: false }))
   }
 
@@ -424,7 +434,13 @@ export function ImageBatchTab({ token }: Props) {
           }}
           comprehensive={cardComprehensive[selectedCard.id]}
           loading={cardLoading[selectedCard.id]}
+          error={cardError[selectedCard.id]}
           onClose={() => setSelectedCard(null)}
+          onRetry={async () => {
+            const card = selectedCard
+            const freshToken = (await supabase.auth.getSession()).data.session?.access_token ?? token
+            runComprehensive(card, freshToken)
+          }}
         />
       )}
     </div>

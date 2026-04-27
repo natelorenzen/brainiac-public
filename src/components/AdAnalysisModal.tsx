@@ -53,10 +53,12 @@ interface Props {
   card: ModalCard
   comprehensive?: ComprehensiveAnalysis
   loading?: boolean
+  error?: string
   onClose: () => void
+  onRetry?: () => void
 }
 
-export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props) {
+export function AdAnalysisModal({ card, comprehensive, loading, error, onClose, onRetry }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -66,15 +68,15 @@ export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props
         className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <div className="relative aspect-video bg-gray-800 shrink-0">
+        <div className="relative bg-gray-800 shrink-0 max-h-[35vh] overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full object-cover" />
+          <img src={card.previewUrl} alt={card.fileName} className="w-full h-full max-h-[35vh] object-contain" />
           {card.result?.heatmap_url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={card.result.heatmap_url}
               alt="Brain activation heatmap"
-              className="absolute inset-0 w-full h-full object-cover opacity-70"
+              className="absolute inset-0 w-full h-full max-h-[35vh] object-contain opacity-70"
             />
           )}
           {card.isWinner && (
@@ -90,7 +92,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props
           </button>
         </div>
 
-        <div className="p-5 space-y-6 overflow-y-auto">
+        <div className="p-5 space-y-6 overflow-y-auto flex-1 min-h-0">
           <div>
             <p className="text-sm font-medium text-white truncate">{card.fileName}</p>
             {card.spend !== undefined && card.spend > 0 && (
@@ -122,6 +124,20 @@ export function AdAnalysisModal({ card, comprehensive, loading, onClose }: Props
             <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-800 pt-4">
               <div className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin" />
               Running comprehensive ad analysis…
+            </div>
+          )}
+
+          {!loading && error && !comprehensive && (
+            <div className="border-t border-gray-800 pt-4 space-y-2">
+              <p className="text-xs text-red-400">{error}</p>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 underline transition-colors"
+                >
+                  Retry analysis
+                </button>
+              )}
             </div>
           )}
 

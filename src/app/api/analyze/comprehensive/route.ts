@@ -272,12 +272,19 @@ export async function POST(req: NextRequest) {
   const patternContext = buildPatternContext(patterns, winningExamples)
 
   // Run both Sonnet calls in parallel
-  const [bergText, visionResult] = await Promise.all([
-    runBergAnalysis(roi_averages, patternContext),
-    image_base64
-      ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext)
-      : Promise.resolve(null),
-  ])
+  let bergText: string
+  let visionResult: Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null
+  try {
+    ;[bergText, visionResult] = await Promise.all([
+      runBergAnalysis(roi_averages, patternContext),
+      image_base64
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext)
+        : Promise.resolve(null),
+    ])
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Anthropic API error'
+    return NextResponse.json({ error: msg }, { status: 502 })
+  }
 
   const bergBullets = parseBergBullets(bergText)
 
