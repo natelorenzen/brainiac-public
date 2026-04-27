@@ -15,22 +15,15 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Brainiac — Brain Activation Analysis for Creatives',
+  title: 'Adforge — Static Ad Intelligence',
   description:
-    "Upload a static ad image. Brainiac runs BERG fMRI brain activation analysis and Claude Sonnet vision to score your ad on neural engagement, CTA strength, emotional appeal, brand clarity, and visual hierarchy.",
+    'Upload static ad creatives. Adforge runs BERG fMRI brain activation analysis and Claude Sonnet vision to score copy, behavioral economics, neuroscience, and visual dimensions — and learns from your historical winners and losers.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})()`,
-          }}
-        />
-      </head>
-      <body className="bg-gray-950 text-white antialiased" suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className="bg-gray-950 text-white antialiased">
         {children}
       </body>
     </html>

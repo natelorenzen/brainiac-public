@@ -61,7 +61,7 @@ function AccountPageInner() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `brainiac-data-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `adforge-data-export-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
     }
@@ -86,7 +86,7 @@ function AccountPageInner() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <a href="/dashboard" className="text-indigo-400 font-bold">Brainiac</a>
+        <a href="/dashboard" className="text-[#ff2a2b] font-bold tracking-tight">Adforge</a>
         <span className="text-sm text-gray-500">Account Settings</span>
       </header>
 

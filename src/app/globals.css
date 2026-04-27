@@ -1,38 +1,38 @@
 @import "tailwindcss";
 
-/* ── Brainiac design tokens — Apple-inspired light (default) ───────────── */
+/* ── Adforge design tokens — dark only ─────────────────────────────────── */
 :root {
   /* Page surfaces */
-  --ink:          #FAFAFA;   /* page background */
-  --ink-soft:     #F4F4F5;   /* subtle elevated surface */
-  --paper:        #0F1317;   /* primary text */
-  --paper-pure:   #000000;   /* highest contrast text */
+  --ink:          #0F1317;   /* page background */
+  --ink-soft:     #161A1F;   /* subtle elevated surface */
+  --paper:        #FAFAFA;   /* primary text */
+  --paper-pure:   #FFFFFF;   /* highest-contrast text */
 
-  /* Graphite scale — interpreted as gray-* (gray-950 = ink, white = paper) */
-  --graphite-9:   #FFFFFF;   /* card surfaces */
-  --graphite-8:   #E5E5E7;   /* default borders, hairline separators */
-  --graphite-7:   #D4D4D8;   /* stronger borders / hover */
-  --graphite-6:   #A1A1AA;   /* tertiary text / subtle icons */
-  --graphite-5:   #71717A;   /* secondary text (Apple secondary label) */
-  --graphite-4:   #52525B;   /* body muted */
-  --graphite-3:   #3F3F46;   /* body text */
-  --graphite-2:   #27272A;   /* strong text */
-  --graphite-1:   #18181B;   /* deepest text */
+  /* Graphite scale (gray-950 = ink, white = paper) */
+  --graphite-9:   #1A1F24;   /* card surfaces */
+  --graphite-8:   #232830;   /* default borders, hairline separators */
+  --graphite-7:   #2E343C;   /* stronger borders / hover */
+  --graphite-6:   #4A5158;   /* tertiary text / subtle icons */
+  --graphite-5:   #6B7079;   /* secondary text */
+  --graphite-4:   #8C9098;   /* body muted */
+  --graphite-3:   #B4B7BD;   /* body text */
+  --graphite-2:   #D6D8DC;   /* strong text */
+  --graphite-1:   #ECEEEF;   /* deepest text */
 
   /* Brand accent */
   --accent:       #ff2a2b;
   --accent-dim:   #d92223;
-  --accent-soft:  #fff1f1;
+  --accent-soft:  #2a1416;
 
   /* Semantic */
-  --ok:           #22c55e;
-  --ok-soft:      #dcfce7;
+  --ok:           #4ade80;
+  --ok-soft:      #14271f;
   --alarm:        #ff2a2b;
-  --warn:         #f59e0b;
+  --warn:         #fbbf24;
 
   /* Rules */
-  --rule:         #E5E5E7;
-  --rule-bright:  #D4D4D8;
+  --rule:         #232830;
+  --rule-bright:  #2E343C;
 
   /* Typography */
   --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -44,48 +44,12 @@
   --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1); /* slight overshoot */
   --ease-default:  cubic-bezier(0.32, 0.72, 0, 1);    /* Apple default */
 
-  /* Shadow ramp */
-  --shadow-xs:  0 1px 2px rgba(15, 19, 23, 0.04);
-  --shadow-sm:  0 1px 3px rgba(15, 19, 23, 0.06), 0 1px 2px rgba(15, 19, 23, 0.04);
-  --shadow-md:  0 4px 16px rgba(15, 19, 23, 0.06), 0 2px 4px rgba(15, 19, 23, 0.04);
-  --shadow-lg:  0 12px 40px rgba(15, 19, 23, 0.08), 0 4px 12px rgba(15, 19, 23, 0.04);
-  --shadow-xl:  0 24px 60px rgba(15, 19, 23, 0.12), 0 8px 24px rgba(15, 19, 23, 0.06);
-}
-
-/* ── Dark mode ─────────────────────────────────────────────────────────── */
-[data-theme="dark"] {
-  --ink:          #0F1317;
-  --ink-soft:     #181C20;
-  --paper:        #FAFAFA;
-  --paper-pure:   #FFFFFF;
-
-  --graphite-9:   #1C2025;
-  --graphite-8:   #272B30;
-  --graphite-7:   #34383D;
-  --graphite-6:   #4A4F55;
-  --graphite-5:   #6B7079;
-  --graphite-4:   #8C9098;
-  --graphite-3:   #B4B7BD;
-  --graphite-2:   #D6D8DC;
-  --graphite-1:   #ECEEEF;
-
-  --accent:       #ff4546;
-  --accent-dim:   #ff2a2b;
-  --accent-soft:  #2a1416;
-
-  --ok:           #4ade80;
-  --ok-soft:      #14271f;
-  --alarm:        #ff4546;
-  --warn:         #fbbf24;
-
-  --rule:         #272B30;
-  --rule-bright:  #34383D;
-
-  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.25);
-  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-xl:  0 24px 60px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
+  /* Shadow ramp (dark — heavier blacks, low alpha) */
+  --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-xl:  0 24px 60px rgba(0, 0, 0, 0.65), 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 /* ── Tailwind theme overrides ──────────────────────────────────────────── */
@@ -93,11 +57,11 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
-  /* Body colors tied to CSS vars — flip automatically with theme */
+  /* Body colors tied to CSS vars */
   --color-white:    var(--paper);
   --color-black:    var(--paper-pure);
 
-  /* Gray scale → light-mode neutrals (inverted naming preserved) */
+  /* Gray scale → dark neutrals */
   --color-gray-950: var(--ink);
   --color-gray-900: var(--graphite-9);
   --color-gray-800: var(--graphite-8);
@@ -109,7 +73,7 @@
   --color-gray-200: var(--graphite-2);
   --color-gray-100: var(--graphite-1);
 
-  /* Indigo → brand accent (red) — kept tight so progress bars / accent text are full brand */
+  /* Indigo → brand accent (red) */
   --color-indigo-300: color-mix(in srgb, var(--accent) 35%, white);
   --color-indigo-400: var(--accent);
   --color-indigo-500: var(--accent);
@@ -130,6 +94,7 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-size: 14px;
+    color-scheme: dark;
   }
 
   body {
@@ -138,7 +103,6 @@
     font-family: var(--font-sans);
     line-height: 1.5;
     letter-spacing: -0.005em;
-    transition: background-color 0.2s var(--ease-default), color 0.2s var(--ease-default);
   }
 
   /* Apple-style fluid transitions on common interactive elements */
@@ -181,18 +145,17 @@
   input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   input::placeholder, textarea::placeholder {
-    color: var(--graphite-6);
+    color: var(--graphite-5);
     letter-spacing: 0;
     text-transform: none;
     font-size: inherit;
     font-family: var(--font-sans);
   }
 
-  /* Smooth image rendering */
   img { -webkit-user-drag: none; }
 }
 
@@ -249,30 +212,6 @@
     margin-left: auto;
   }
 
-  /* Theme toggle button */
-  .theme-toggle {
-    font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0;
-    text-transform: none;
-    color: var(--graphite-5);
-    border: 1px solid var(--rule);
-    border-radius: 999px;
-    padding: 5px 12px;
-    background: transparent;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .theme-toggle:hover {
-    color: var(--paper);
-    border-color: var(--graphite-6);
-    background: var(--graphite-9);
-  }
-
   /* Apple-style focus ring */
   .focus-ring:focus-visible {
     outline: none;
@@ -315,8 +254,8 @@
 }
 
 @layer utilities {
-  .animate-fade-in   { animation: fade-in 0.3s var(--ease-out) both; }
-  .animate-fade-up   { animation: fade-up 0.4s var(--ease-out) both; }
-  .animate-scale-in  { animation: scale-in 0.25s var(--ease-out) both; }
+  .animate-fade-in    { animation: fade-in 0.3s var(--ease-out) both; }
+  .animate-fade-up    { animation: fade-up 0.4s var(--ease-out) both; }
+  .animate-scale-in   { animation: scale-in 0.25s var(--ease-out) both; }
   .animate-pulse-soft { animation: pulse-soft 1.6s var(--ease-in-out) infinite; }
 }

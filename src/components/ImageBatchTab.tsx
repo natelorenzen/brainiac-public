@@ -27,7 +27,10 @@ interface ImageCard {
 
 interface ROIAverage extends ROIRegion { /* activation is already the average */ }
 
-interface Props { token: string }
+interface Props {
+  token: string
+  onStatsUpdate?: (stats: { count: number; totalSpend: number }) => void
+}
 
 async function fileToBase64(file: File): Promise<{ base64: string; mime_type: string }> {
   return new Promise((resolve, reject) => {
@@ -43,7 +46,7 @@ async function fileToBase64(file: File): Promise<{ base64: string; mime_type: st
   })
 }
 
-export function ImageBatchTab({ token }: Props) {
+export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   const [mode, setMode] = useState<Mode>('feedback')
   const [cards, setCards] = useState<ImageCard[]>([])
   const [analyzing, setAnalyzing] = useState(false)
@@ -66,15 +69,19 @@ export function ImageBatchTab({ token }: Props) {
   const intervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map())
 
   async function fetchAdCount() {
-    const { count } = await supabase
+    const { data } = await supabase
       .from('analyses')
-      .select('*', { count: 'exact', head: true })
+      .select('spend_usd')
       .eq('type', 'thumbnail')
       .eq('status', 'complete')
-    setUserAdCount(count ?? 0)
+    const rows = data ?? []
+    const count = rows.length
+    const totalSpend = rows.reduce((sum, r) => sum + (Number(r.spend_usd) || 0), 0)
+    setUserAdCount(count)
+    onStatsUpdate?.({ count, totalSpend })
   }
 
-  useEffect(() => { fetchAdCount() }, [])
+  useEffect(() => { fetchAdCount() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
 
   const feedbackLocked = userAdCount !== null && userAdCount < 10
 

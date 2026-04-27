@@ -7,7 +7,7 @@ export async function fetchRedditPosts(topic: string): Promise<RedditPost[] | nu
     const timeout = setTimeout(() => controller.abort(), 8000)
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': 'Brainiac-AdAnalyzer/1.0' },
+      headers: { 'User-Agent': 'Adforge-AdAnalyzer/1.0' },
     })
     clearTimeout(timeout)
     if (!res.ok) return null
