@@ -152,6 +152,10 @@ Extract 4–8 specific, transferable anti-patterns. Return ONLY a JSON array wit
   let frameworkPrinciples = 0
 
   // Framework synthesis — derives conditional segment-scoped guard rails from accumulated history.
+  // REQUIRES migration 006_framework_principles.sql to be applied to Supabase first
+  // (extends pattern_library.category constraint to include 'framework' and adds
+  // scope_awareness, scope_sophistication, supporting_winner_ids, supporting_loser_ids
+  // columns). Without it, this block fails with a CHECK constraint violation.
   if (winners.length + losers.length >= 10) {
     const winnerLines = winners
       .map((w, i) => `Winner W${i + 1} [id=${w.id}]: ${buildAdSummary(w.comprehensive_analysis as unknown as ComprehensiveAnalysis, w.spend_usd)}`)

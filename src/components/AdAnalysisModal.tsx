@@ -214,7 +214,7 @@ export function AdAnalysisModal({ card, comprehensive, loading, error, isHistori
             </div>
           )}
 
-          {comprehensive && <ComprehensiveSections data={comprehensive} isHistorical={isHistorical} />}
+          {comprehensive && <ComprehensiveSections data={comprehensive} isHistorical={isHistorical} isLoser={isHistorical && card.isWinner === false} />}
         </div>
       </div>
     </div>
@@ -313,7 +313,7 @@ function LibraryAlignmentChips({ alignment }: { alignment: AlignmentLike }) {
   )
 }
 
-function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnalysis; isHistorical?: boolean }) {
+function ComprehensiveSections({ data, isHistorical, isLoser }: { data: ComprehensiveAnalysis; isHistorical?: boolean; isLoser?: boolean }) {
   return (
     <>
       {/* Market Context */}
@@ -603,16 +603,19 @@ function ComprehensiveSections({ data, isHistorical }: { data: ComprehensiveAnal
         </Section>
       )}
 
-      {/* Pattern Matches */}
+      {/* Pattern Matches — winners satisfy rules (P-prefixed); losers embody anti-patterns (A-prefixed) */}
       {data.pattern_matches && data.pattern_matches.length > 0 && (
-        <Section title="Winning Pattern Matches">
+        <Section title={isLoser ? 'Anti-Pattern Matches' : 'Winning Pattern Matches'}>
           <ul className="space-y-1.5">
-            {data.pattern_matches.map((p, i) => (
-              <li key={i} className="flex gap-2 text-[11px] text-gray-300">
-                <span className="text-yellow-500 shrink-0">★</span>
-                <span>{p}</span>
-              </li>
-            ))}
+            {data.pattern_matches.map((p, i) => {
+              const isAnti = p.trim().startsWith('[A')
+              return (
+                <li key={i} className="flex gap-2 text-[11px] text-gray-300">
+                  <span className={`shrink-0 ${isAnti ? 'text-[#ff2a2b]' : 'text-yellow-500'}`}>{isAnti ? '✗' : '★'}</span>
+                  <span>{p}</span>
+                </li>
+              )
+            })}
           </ul>
         </Section>
       )}

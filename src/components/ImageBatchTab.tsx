@@ -518,6 +518,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
               extractionLoading={extractionLoading[card.id]}
               awaitingConfirmation={awaitingConfirmation[card.id]}
               confirmed={!!confirmedElements[card.id]}
+              comprehensive={cardComprehensive[card.id]}
               onSpendChange={(v) => updateSpend(card.id, v)}
               onClick={card.status === 'complete' ? () => handleCardClick(card) : undefined}
             />
@@ -601,7 +602,7 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
 }
 
 function ImageResultCard({
-  card, mode, disabled, extractionLoading, awaitingConfirmation, confirmed, onSpendChange, onClick,
+  card, mode, disabled, extractionLoading, awaitingConfirmation, confirmed, comprehensive, onSpendChange, onClick,
 }: {
   card: ImageCard
   mode: Mode
@@ -609,9 +610,13 @@ function ImageResultCard({
   extractionLoading?: boolean
   awaitingConfirmation?: boolean
   confirmed?: boolean
+  comprehensive?: ComprehensiveAnalysis
   onSpendChange: (value: string) => void
   onClick?: () => void
 }) {
+  const composition = comprehensive?.composition_tag
+  const grade = comprehensive?.framework_score?.overall_framework_grade
+  const comboVerdict = comprehensive?.combination_analysis?.historical_match?.verdict
   const topRoi = card.result?.roi_data?.slice(0, 3) ?? []
   const isWinner = mode === 'historical' && (card.spend ?? 0) >= WINNER_THRESHOLD_USD
   const isLoser = mode === 'historical' && card.spend !== undefined && card.spend < WINNER_THRESHOLD_USD
@@ -672,6 +677,31 @@ function ImageResultCard({
 
       <div className="p-2.5 flex-1 flex flex-col gap-2">
         <p className="text-xs text-gray-300 leading-snug line-clamp-2">{card.file.name}</p>
+
+        {(composition || grade || comboVerdict) && (
+          <div className="flex items-center flex-wrap gap-1">
+            {composition && (
+              <span className="text-[9px] text-white font-mono bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 truncate max-w-full" title={composition}>
+                {composition}
+              </span>
+            )}
+            {grade && (
+              <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border bg-gray-900 ${
+                grade === 'A' ? 'text-emerald-400 border-emerald-800/60' :
+                grade === 'B' ? 'text-amber-400 border-amber-800/60' :
+                grade === 'C' ? 'text-orange-400 border-orange-800/60' :
+                                'text-[#ff2a2b] border-red-900/60'
+              }`}>{grade}</span>
+            )}
+            {comboVerdict && comboVerdict !== 'no_segment_data' && (
+              <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${
+                comboVerdict === 'strong_winner_pattern' ? 'text-emerald-400 border-emerald-800/60' :
+                comboVerdict === 'mostly_loser_pattern' ? 'text-[#ff2a2b] border-red-900/60' :
+                'text-amber-400 border-amber-800/60'
+              }`}>{comboVerdict.split('_')[0]}</span>
+            )}
+          </div>
+        )}
 
         {mode === 'historical' && (
           <div onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">

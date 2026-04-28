@@ -59,22 +59,22 @@ export async function getFrameworkPrinciples(
   awareness?: string | null,
   sophistication?: number | null,
 ): Promise<FrameworkPrincipleRow[]> {
-  let query = supabaseServer
+  // Fetch all framework rules; framework table is small (<200 rows expected).
+  // Filter in JS so the AND-of-OR semantics ("scope is null OR matches" for
+  // each axis independently) work correctly. Stacked PostgREST .or() calls
+  // overwrite each other, so the SQL approach is fragile.
+  const { data, error } = await supabaseServer
     .from('pattern_library')
     .select('*')
     .eq('category', 'framework')
+    .order('confidence', { ascending: false })
 
-  // Surface rules whose scope is null (global) OR matches the current ad's segment
-  if (awareness) {
-    query = query.or(`scope_awareness.is.null,scope_awareness.eq.${awareness}`)
-  }
-  if (sophistication !== undefined && sophistication !== null) {
-    query = query.or(`scope_sophistication.is.null,scope_sophistication.eq.${sophistication}`)
-  }
-
-  const { data, error } = await query.order('confidence', { ascending: false })
   if (error) return []
-  return (data ?? []) as FrameworkPrincipleRow[]
+  const all = (data ?? []) as FrameworkPrincipleRow[]
+  return all.filter(p =>
+    (!awareness || p.scope_awareness === null || p.scope_awareness === awareness) &&
+    (sophistication === undefined || sophistication === null || p.scope_sophistication === null || p.scope_sophistication === sophistication)
+  )
 }
 
 export async function getLosingPatterns(): Promise<LosingPatternRow[]> {

@@ -305,11 +305,37 @@ function ListField({
   )
 }
 
+function deriveCompositionTag(f: ExtractedElements): string {
+  const slots: string[] = []
+  if (f.headline?.trim()) slots.push('headline')
+  if (f.subheadline?.trim()) slots.push('sub')
+  if (f.body_copy?.trim()) slots.push('body')
+  if (f.benefits.length > 0) slots.push('benefits')
+  if (f.trust_signals.length > 0) slots.push('trust')
+  if (f.safety_signals.length > 0) slots.push('safety')
+  if (f.cta?.trim()) slots.push('cta')
+  if (f.offer_details?.trim()) slots.push('offer')
+  if (slots.length === 0) return 'visual_only'
+  if (slots.length === 1 && slots[0] === 'headline') return 'headline_only'
+  if (slots.length >= 6 && slots.includes('headline') && slots.includes('sub') && slots.includes('benefits') && slots.includes('trust') && slots.includes('cta') && slots.includes('offer')) return 'full_stack'
+  return slots.join('+')
+}
+
 export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConfirm, onSkip, onClose }: Props) {
-  const [fields, setFields] = useState<ExtractedElements>({ ...extracted })
+  const [fields, setFields] = useState<ExtractedElements>(() => ({
+    ...extracted,
+    composition_tag: deriveCompositionTag(extracted),
+  }))
 
   function set<K extends keyof ExtractedElements>(key: K, value: ExtractedElements[K]) {
-    setFields(prev => ({ ...prev, [key]: value }))
+    setFields(prev => {
+      const next = { ...prev, [key]: value }
+      // Recompute composition_tag whenever a slot-affecting field changes.
+      if (key !== 'composition_tag') {
+        next.composition_tag = deriveCompositionTag(next)
+      }
+      return next
+    })
   }
 
   return (

@@ -320,17 +320,17 @@ function buildPatternContext(
   }
 
   if (patterns.length > 0) {
-    lines.push(`--- Winning Ad Patterns (derived from ads with $${WINNER_THRESHOLD_USD}+ spend) ---`)
+    lines.push(`--- Winning Ad Patterns (derived from ads with $${WINNER_THRESHOLD_USD}+ spend) — cite as [P<n>] in pattern_matches ---`)
     patterns.forEach((p, i) => {
-      lines.push(`${i + 1}. [${p.category}] ${p.rule_text}`)
+      lines.push(`[P${i + 1}] [${p.category}] ${p.rule_text}`)
     })
     lines.push('')
   }
 
   if (losingPatterns.length > 0) {
-    lines.push(`--- Anti-Patterns (from ads <$${WINNER_THRESHOLD_USD} spend — treat as warnings, not rules) ---`)
+    lines.push(`--- Anti-Patterns (from ads <$${WINNER_THRESHOLD_USD} spend — treat as warnings) — cite as [A<n>] in pattern_matches ---`)
     losingPatterns.forEach((p, i) => {
-      lines.push(`${i + 1}. [${p.category}] ${p.rule_text} (seen in ${p.loser_count} losers, confidence: ${p.confidence})`)
+      lines.push(`[A${i + 1}] [${p.category}] ${p.rule_text} (seen in ${p.loser_count} losers, confidence: ${p.confidence})`)
     })
     lines.push('')
   }
@@ -620,7 +620,7 @@ const COMPREHENSIVE_JSON_SCHEMA = `{
     "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<same shape>" },
     "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences — must agree with score>", "rewrite": "<same shape>" }
   },
-  "pattern_matches": ["<winning rule this ad satisfies or violates, verbatim from the patterns>"],
+  "pattern_matches": ["<verbatim rule from the synthesized library, MUST be prefixed with the bracketed library index e.g. '[P3] <rule text>' for winning patterns this ad satisfies, or '[A2] <rule text>' for anti-patterns this ad embodies. Never paraphrase. Never include a rule without its bracketed index.>"],
   "overall": {
     "verdict":           "<three-four sentences: overall assessment>",
     "top_strength":      "<one sentence: strongest element with specific reason>",
@@ -770,7 +770,7 @@ const COMPREHENSIVE_JSON_SCHEMA_HISTORICAL = `{
     "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" },
     "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences: observation about this dimension's role in this ad's effectiveness>" }
   },
-  "pattern_matches": ["<winning rule this ad satisfies or violates, verbatim from the patterns>"],
+  "pattern_matches": ["<verbatim rule from the synthesized library, MUST be prefixed with the bracketed library index e.g. '[P3] <rule text>' for winning patterns this ad satisfies, or '[A2] <rule text>' for anti-patterns this ad embodies. Never paraphrase. Never include a rule without its bracketed index.>"],
   "overall": {
     "verdict":           "<three-four sentences: overall assessment of why this ad worked>",
     "top_strength":      "<one sentence: strongest element with specific reason>",
@@ -914,7 +914,7 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
     "brand_clarity":    { "score": <1-10>, "feedback": "<two sentences: what this score reveals about why brand registration failed>" },
     "visual_hierarchy": { "score": <1-10>, "feedback": "<two sentences: what this score reveals about how hierarchy limited performance>" }
   },
-  "pattern_matches": ["<anti-pattern this ad embodies, or winning rule it violated>"],
+  "pattern_matches": ["<verbatim rule from the synthesized library, MUST be prefixed with the bracketed library index e.g. '[A3] <rule text>' for anti-patterns this ad embodies, or '[P2] <rule text>' for winning rules this ad violated. Never paraphrase. Never include a rule without its bracketed index.>"],
   "overall": {
     "verdict":           "<three-four sentences: why this ad failed to achieve meaningful spend — what structural choices limited its distribution>",
     "top_strength":      "<one sentence: what worked structurally, if anything, and why it was insufficient>",
@@ -1194,7 +1194,7 @@ async function runComprehensiveVisionAnalysis(
   try {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
+      max_tokens: 16384,
       messages: [{
         role: 'user',
         content: [
