@@ -7,12 +7,24 @@ import { ConsentGate } from '@/components/ConsentGate'
 import { UsageMeter } from '@/components/UsageMeter'
 import { AttributionFooter } from '@/components/AttributionFooter'
 import { ImageBatchTab } from '@/components/ImageBatchTab'
+import { SessionHistory } from '@/components/SessionHistory'
+import { AdAnalysisModal } from '@/components/AdAnalysisModal'
 import { LogOut } from 'lucide-react'
-import type { UsageInfo, ConsentType } from '@/types'
+import type { UsageInfo, ConsentType, AnalysisResult } from '@/types'
+import type { ComprehensiveAnalysis } from '@/app/api/analyze/comprehensive/route'
 
 interface Stats {
   count: number
   totalSpend: number
+}
+
+interface ReopenedAnalysis {
+  id: string
+  result: AnalysisResult
+  comprehensive: ComprehensiveAnalysis | null
+  spend?: number
+  isWinner?: boolean
+  isLoser?: boolean
 }
 
 export default function DashboardPage() {
@@ -21,6 +33,40 @@ export default function DashboardPage() {
   const [consentDone, setConsentDone] = useState<boolean | null>(null)
   const [usage, setUsage] = useState<UsageInfo | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [reopened, setReopened] = useState<ReopenedAnalysis | null>(null)
+  const [reopenLoading, setReopenLoading] = useState(false)
+
+  const handleReopen = useCallback(async (analysisId: string) => {
+    if (!token) return
+    setReopenLoading(true)
+    try {
+      const res = await fetch(`/api/analyze/${analysisId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const isWinner = data.spend_usd != null && data.spend_usd >= 1000
+        const isLoser = data.spend_usd != null && data.spend_usd < 1000
+        setReopened({
+          id: data.analysis_id,
+          result: {
+            analysis_id: data.analysis_id,
+            status: data.status,
+            heatmap_url: data.heatmap_url,
+            roi_data: data.roi_data,
+            mean_top_roi_score: data.mean_top_roi_score,
+            error_message: data.error_message,
+            attribution: data.attribution,
+          },
+          comprehensive: data.comprehensive_analysis,
+          spend: data.spend_usd ?? undefined,
+          isWinner,
+          isLoser,
+        })
+      }
+    } catch { /* ignore */ }
+    setReopenLoading(false)
+  }, [token])
 
   const fetchStats = useCallback(async () => {
     // Historical-mode only: feedback mode never sets spend_usd, so this filter
@@ -119,6 +165,10 @@ export default function DashboardPage() {
         )}
 
         {token && (
+          <SessionHistory token={token} onSelect={handleReopen} />
+        )}
+
+        {token && (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6 shadow-sm animate-fade-up">
             <div className="mb-5">
               <h2 className="text-sm font-semibold text-white">Static Ad Intelligence</h2>
@@ -135,6 +185,25 @@ export default function DashboardPage() {
 
         <AttributionFooter />
       </main>
+
+      {reopened && token && (
+        <AdAnalysisModal
+          card={{
+            id: reopened.id,
+            fileName: reopened.id.slice(0, 8),
+            previewUrl: reopened.result.heatmap_url ?? '',
+            result: reopened.result,
+            spend: reopened.spend,
+            isWinner: reopened.isWinner,
+            isLoser: reopened.isLoser,
+          }}
+          comprehensive={reopened.comprehensive ?? undefined}
+          loading={reopenLoading}
+          isHistorical={reopened.spend != null}
+          token={token}
+          onClose={() => setReopened(null)}
+        />
+      )}
     </div>
   )
 }

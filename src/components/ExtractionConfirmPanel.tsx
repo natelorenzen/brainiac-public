@@ -305,6 +305,66 @@ function ListField({
   )
 }
 
+// Recompute mechanical DNA fields from current text. Leaves qualitative
+// fields (structure_type, emotional_register, voice, etc.) untouched —
+// those need human/Claude judgement and will go stale only if the user
+// rewrites the text into something semantically different.
+function countWords(s: string): number {
+  return s.trim().split(/\s+/).filter(Boolean).length
+}
+function detectPunctuation(s: string): string[] {
+  const out: string[] = []
+  if (s.includes('?')) out.push('question_mark')
+  if (s.includes('!')) out.push('exclamation')
+  if (s.includes('…') || /\.\.\./.test(s)) out.push('ellipsis')
+  if (s.includes('—') || /--/.test(s)) out.push('em_dash')
+  if (s.includes(':')) out.push('colon')
+  return out
+}
+function recomputeHeadlineDna(text: string, dna: HeadlineDNA): HeadlineDNA {
+  return {
+    ...dna,
+    word_count: countWords(text),
+    char_count: text.length,
+    number_present: /\d/.test(text),
+    time_bound: /\b(today|tonight|now|in \d+ (?:day|days|hour|hours|minute|minutes|second|seconds|week|weeks|month|months|year|years)|by \d+|overnight|tomorrow|this week|this month|by midnight|deadline|hurry|expires?)\b/i.test(text),
+    punctuation_signals: detectPunctuation(text),
+  }
+}
+function recomputeSubheadlineDna(text: string, dna: SubheadlineDNA, headlineWordCount?: number | null): SubheadlineDNA {
+  const wc = countWords(text)
+  let lengthRel: SubheadlineDNA['length_relative_to_headline'] = dna.length_relative_to_headline
+  if (headlineWordCount && wc > 0) {
+    if (wc < headlineWordCount * 0.8) lengthRel = 'shorter'
+    else if (wc > headlineWordCount * 1.2) lengthRel = 'longer'
+    else lengthRel = 'same'
+  }
+  return {
+    ...dna,
+    word_count: wc,
+    char_count: text.length,
+    length_relative_to_headline: lengthRel,
+  }
+}
+function recomputeBodyDna(text: string, dna: BodyDNA): BodyDNA {
+  const sentences = text.split(/[.!?]+\s/).filter(s => s.trim().length > 0)
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+  const wc = countWords(text)
+  return {
+    ...dna,
+    word_count: wc,
+    paragraph_count: paragraphs.length,
+    sentence_count: sentences.length,
+    avg_sentence_length: sentences.length > 0 ? Math.round(wc / sentences.length) : null,
+  }
+}
+function recomputeCtaDna(text: string, dna: CtaDNA): CtaDNA {
+  return {
+    ...dna,
+    word_count: countWords(text),
+  }
+}
+
 function deriveCompositionTag(f: ExtractedElements): string {
   const slots: string[] = []
   if (f.headline?.trim()) slots.push('headline')
@@ -379,19 +439,47 @@ export function ExtractionConfirmPanel({ fileName, previewUrl, extracted, onConf
 
         {/* Editable fields */}
         <div className="p-5 space-y-3 overflow-y-auto flex-1 min-h-0">
-          <Field label="Headline" value={fields.headline ?? ''} onChange={v => set('headline', v || null)} />
+          <Field label="Headline" value={fields.headline ?? ''} onChange={v => {
+            setFields(prev => {
+              const next = { ...prev, headline: v || null }
+              if (next.headline_dna) next.headline_dna = recomputeHeadlineDna(v, next.headline_dna)
+              next.composition_tag = deriveCompositionTag(next)
+              return next
+            })
+          }} />
           {fields.headline_dna && (
             <HeadlineDnaEditor dna={fields.headline_dna} onChange={d => set('headline_dna', d)} />
           )}
-          <Field label="Subheadline" value={fields.subheadline ?? ''} onChange={v => set('subheadline', v || null)} />
+          <Field label="Subheadline" value={fields.subheadline ?? ''} onChange={v => {
+            setFields(prev => {
+              const next = { ...prev, subheadline: v || null }
+              if (next.subheadline_dna) next.subheadline_dna = recomputeSubheadlineDna(v, next.subheadline_dna, next.headline_dna?.word_count)
+              next.composition_tag = deriveCompositionTag(next)
+              return next
+            })
+          }} />
           {fields.subheadline_dna && (
             <SubheadlineDnaEditor dna={fields.subheadline_dna} onChange={d => set('subheadline_dna', d)} />
           )}
-          <Field label="Body copy" value={fields.body_copy ?? ''} onChange={v => set('body_copy', v || null)} multiline />
+          <Field label="Body copy" value={fields.body_copy ?? ''} onChange={v => {
+            setFields(prev => {
+              const next = { ...prev, body_copy: v || null }
+              if (next.body_dna) next.body_dna = recomputeBodyDna(v, next.body_dna)
+              next.composition_tag = deriveCompositionTag(next)
+              return next
+            })
+          }} multiline />
           {fields.body_dna && (
             <BodyDnaEditor dna={fields.body_dna} onChange={d => set('body_dna', d)} />
           )}
-          <Field label="CTA" value={fields.cta ?? ''} onChange={v => set('cta', v || null)} />
+          <Field label="CTA" value={fields.cta ?? ''} onChange={v => {
+            setFields(prev => {
+              const next = { ...prev, cta: v || null }
+              if (next.cta_dna) next.cta_dna = recomputeCtaDna(v, next.cta_dna)
+              next.composition_tag = deriveCompositionTag(next)
+              return next
+            })
+          }} />
           {fields.cta_dna && (
             <CtaDnaEditor dna={fields.cta_dna} onChange={d => set('cta_dna', d)} />
           )}

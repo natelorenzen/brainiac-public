@@ -44,6 +44,9 @@ export async function GET(
     mean_top_roi_score: analysis.mean_top_roi_score ?? null,
     error_message: analysis.error_message ?? null,
     screenshot_url,
+    spend_usd: analysis.spend_usd ?? null,
+    is_winner: analysis.is_winner ?? null,
+    comprehensive_analysis: analysis.comprehensive_analysis ?? null,
     attribution: ATTRIBUTION,
   })
 }
