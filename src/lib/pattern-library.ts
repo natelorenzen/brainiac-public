@@ -273,6 +273,92 @@ export async function storeBaselineEvolution(
   })
 }
 
+// --- Synthesis queue (sequential per-ad processing) ---
+
+export interface SynthesisJob {
+  id: string
+  analysis_id: string
+  status: 'pending' | 'processing' | 'done' | 'failed'
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  error_message: string | null
+}
+
+export async function enqueueSynthesis(analysisId: string): Promise<void> {
+  await supabaseServer.from('synthesis_queue').insert({
+    analysis_id: analysisId,
+    status: 'pending',
+  })
+}
+
+// Atomically claim the next pending job. Returns null if queue is empty.
+// Uses an UPDATE with a subquery to claim a single row in one statement,
+// avoiding races between concurrent claimNextSynthesisJob() calls.
+export async function claimNextSynthesisJob(): Promise<SynthesisJob | null> {
+  // Step 1: find the oldest pending job
+  const { data: pending } = await supabaseServer
+    .from('synthesis_queue')
+    .select('id')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (!pending) return null
+
+  // Step 2: try to claim it (only succeeds if still pending)
+  const { data: claimed, error } = await supabaseServer
+    .from('synthesis_queue')
+    .update({ status: 'processing', started_at: new Date().toISOString() })
+    .eq('id', pending.id)
+    .eq('status', 'pending')
+    .select('*')
+    .maybeSingle()
+
+  if (error || !claimed) return null
+  return claimed as SynthesisJob
+}
+
+export async function markSynthesisDone(jobId: string): Promise<void> {
+  await supabaseServer
+    .from('synthesis_queue')
+    .update({ status: 'done', completed_at: new Date().toISOString() })
+    .eq('id', jobId)
+}
+
+export async function markSynthesisFailed(jobId: string, errorMessage: string): Promise<void> {
+  await supabaseServer
+    .from('synthesis_queue')
+    .update({ status: 'failed', completed_at: new Date().toISOString(), error_message: errorMessage })
+    .eq('id', jobId)
+}
+
+export async function hasPendingSynthesisJobs(): Promise<boolean> {
+  const { count } = await supabaseServer
+    .from('synthesis_queue')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+  return (count ?? 0) > 0
+}
+
+export async function getAnalysisById(analysisId: string): Promise<WinningAnalysisSummary | null> {
+  const { data } = await supabaseServer
+    .from('analyses')
+    .select('id, comprehensive_analysis, spend_usd')
+    .eq('id', analysisId)
+    .maybeSingle()
+  return (data as WinningAnalysisSummary | null) ?? null
+}
+
+export async function setAnalysisLossReason(analysisId: string, lossReason: string): Promise<void> {
+  await supabaseServer.from('analyses').update({ loss_reason: lossReason }).eq('id', analysisId)
+}
+
+export async function setAnalysisVerticalCategory(analysisId: string, vertical: string): Promise<void> {
+  await supabaseServer.from('analyses').update({ vertical_category: vertical }).eq('id', analysisId)
+}
+
 export async function upsertAntiPatterns(
   patterns: { category: string; rule_text: string; confidence: number }[],
 ): Promise<void> {

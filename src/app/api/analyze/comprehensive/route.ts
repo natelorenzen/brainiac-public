@@ -1315,9 +1315,12 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
+      // Send an immediate keep-alive byte so the connection sees activity
+      // within the first second; some proxies close idle streams in <15s.
+      try { controller.enqueue(encoder.encode('\n')) } catch {}
       const ping = setInterval(() => {
         try { controller.enqueue(encoder.encode('\n')) } catch {}
-      }, 15000)
+      }, 10000)
       try {
         const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, evolvedBaseline] = await Promise.all([
           getWinningPatterns(),

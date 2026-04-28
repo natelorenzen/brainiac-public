@@ -218,9 +218,13 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
+      // Send an immediate keep-alive so the connection sees bytes within
+      // the first second — protects against proxies that close idle
+      // streams in under 15s.
+      try { controller.enqueue(encoder.encode('\n')) } catch {}
       const ping = setInterval(() => {
         try { controller.enqueue(encoder.encode('\n')) } catch {}
-      }, 15000)
+      }, 10000)
       try {
         const message = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',

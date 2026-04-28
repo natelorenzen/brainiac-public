@@ -158,20 +158,32 @@ Return ONLY a JSON object with no markdown fences:
   ]
 }`
 
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
-      messages: [{ role: 'user', content: prompt }],
-    })
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      try { controller.enqueue(encoder.encode('\n')) } catch {}
+      const ping = setInterval(() => {
+        try { controller.enqueue(encoder.encode('\n')) } catch {}
+      }, 10000)
+      try {
+        const message = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 8192,
+          messages: [{ role: 'user', content: prompt }],
+        })
 
-    const textBlock = message.content.find(b => b.type === 'text')
-    const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const parsed = JSON.parse(cleaned) as { source_summary: string; variants: CreativeVariant[] }
-
-    return NextResponse.json(parsed)
-  } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
+        const textBlock = message.content.find(b => b.type === 'text')
+        const raw = textBlock?.type === 'text' ? textBlock.text : ''
+        const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+        const parsed = JSON.parse(cleaned) as { source_summary: string; variants: CreativeVariant[] }
+        controller.enqueue(encoder.encode(JSON.stringify(parsed) + '\n'))
+      } catch (err) {
+        controller.enqueue(encoder.encode(JSON.stringify({ error: String(err) }) + '\n'))
+      } finally {
+        clearInterval(ping)
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }
