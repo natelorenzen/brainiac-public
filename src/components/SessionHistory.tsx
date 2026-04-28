@@ -1,18 +1,20 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { History, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, Trash2, RefreshCw } from 'lucide-react'
 import type { RecentAnalysis } from '@/app/api/analyses/recent/route'
 
 interface Props {
   token: string | null
   onSelect: (analysisId: string) => void
+  onReanalyze?: (analysisId: string) => void
 }
 
-export function SessionHistory({ token, onSelect }: Props) {
+export function SessionHistory({ token, onSelect, onReanalyze }: Props) {
   const [analyses, setAnalyses] = useState<RecentAnalysis[]>([])
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [reanalyzingId, setReanalyzingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!token) return
@@ -32,8 +34,6 @@ export function SessionHistory({ token, onSelect }: Props) {
   const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!token) return
-    // Optimistic remove — even if the server fails the row gets
-    // restored on next load.
     setAnalyses(prev => prev.filter(a => a.id !== id))
     try {
       await fetch(`/api/analyze/${id}`, {
@@ -42,6 +42,41 @@ export function SessionHistory({ token, onSelect }: Props) {
       })
     } catch { /* non-fatal */ }
   }, [token])
+
+  const handleReanalyze = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!token || reanalyzingId) return
+    setReanalyzingId(id)
+    try {
+      const res = await fetch('/api/analyze/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ analysis_id: id }),
+      })
+      if (res.ok) {
+        // Stream the response (keep-alive format) then notify parent to reload.
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let text = ''
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            text += decoder.decode(value, { stream: !done })
+          }
+        }
+        const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
+        const data = JSON.parse(last)
+        if (!data.error) {
+          // Reload this row's grade/composition from the parent callback.
+          onReanalyze?.(id)
+          // Refresh the list so the updated grade/composition chips appear.
+          await load()
+        }
+      }
+    } catch { /* non-fatal */ }
+    setReanalyzingId(null)
+  }, [token, reanalyzingId, onReanalyze, load])
 
   useEffect(() => {
     if (expanded) load()
@@ -115,9 +150,25 @@ export function SessionHistory({ token, onSelect }: Props) {
                           a.is_winner ? 'text-yellow-400 border-yellow-800/60 bg-gray-900' : 'text-[#ff2a2b] border-red-900/60 bg-gray-900'
                         }`}>${a.spend_usd.toLocaleString()}</span>
                       )}
+                      {reanalyzingId === a.id && (
+                        <span className="text-[9px] text-indigo-300 animate-pulse">re-analyzing…</span>
+                      )}
                     </div>
                   </div>
                   </button>
+
+                  {/* Re-analyze button */}
+                  <button
+                    onClick={(e) => handleReanalyze(a.id, e)}
+                    aria-label="Re-analyze with latest patterns"
+                    title="Re-analyze with latest patterns"
+                    disabled={reanalyzingId === a.id}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-gray-500 hover:text-indigo-400 hover:bg-gray-900 transition-all shrink-0 disabled:opacity-30"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${reanalyzingId === a.id ? 'animate-spin' : ''}`} />
+                  </button>
+
+                  {/* Delete button */}
                   <button
                     onClick={(e) => handleDelete(a.id, e)}
                     aria-label="Delete analysis"

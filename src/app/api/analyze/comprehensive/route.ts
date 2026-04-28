@@ -268,7 +268,7 @@ function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, 
   lines.push(`  combo=${combo} | grade=${grade} | scroll_stop=${scrollStop} | cog_load=${cogLoad} | congruence=${congruence} | BE=[${topBE}]`)
   if (compact) return lines
   if (hd) {
-    lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} audience=${hd.audience_explicit} outcome=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${hd.punctuation_signals.join(',')}]`)
+    lines.push(`  HL="${headline}" (${hd.word_count}w/${hd.char_count}c) | ${hd.voice}/${hd.person}/${hd.tense}/${hd.sentence_type} | structure=${hd.structure_type} | spec=${hd.specificity_level} | mech=${hd.mechanism_present} audience=${hd.audience_explicit} outcome=${hd.outcome_explicit} time=${hd.time_bound} | reg=${hd.emotional_register}/${hd.tone_register} | metaphor=${hd.uses_metaphor} neg=${hd.uses_negation} contrast=${hd.uses_contrast} punct=[${(hd.punctuation_signals ?? []).join(',')}]`)
   } else {
     lines.push(`  HL="${headline}"`)
   }
@@ -279,7 +279,7 @@ function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, 
     lines.push(`  BEN(${bd.count}): avg=${bd.avg_word_count}w | ${bd.pattern_uniformity} | ${bd.outcome_vs_feature_split} | spec=${bd.specificity}`)
   }
   if (td && td.count > 0) {
-    lines.push(`  TRU(${td.count}): [${td.types_present.join(', ')}] | quant=${td.has_specific_quantifiers} | ${td.source_attribution}`)
+    lines.push(`  TRU(${td.count}): [${(td.types_present ?? []).join(', ')}] | quant=${td.has_specific_quantifiers} | ${td.source_attribution}`)
   }
   if (cd) {
     lines.push(`  CTA="${cta}" verb=${cd.verb} | ${cd.word_count}w | ${cd.framing} | ${cd.friction_level}_friction | value=${cd.has_value_anchor} urgency=${cd.has_urgency_signal}`)
@@ -287,7 +287,7 @@ function fingerprintAd(prefix: string, idx: number, ex: WinningAnalysisSummary, 
   return lines
 }
 
-function buildPatternContext(
+export function buildPatternContext(
   patterns: PatternLibraryRow[],
   winningExamples: WinningAnalysisSummary[],
   losingPatterns: LosingPatternRow[] = [],
@@ -487,9 +487,9 @@ function buildConfirmedElementsBlock(confirmed: ExtractedElements): string {
       lines.push(`  - words=${h.word_count ?? '?'}, chars=${h.char_count ?? '?'}, reading_level=${h.reading_level ?? '?'}`)
       lines.push(`  - voice=${h.voice ?? '?'}, person=${h.person ?? '?'}, tense=${h.tense ?? '?'}, sentence_type=${h.sentence_type ?? '?'}`)
       lines.push(`  - structure=${h.structure_type ?? '?'}, specificity=${h.specificity_level ?? '?'}, mechanism=${h.mechanism_present}, audience_explicit=${h.audience_explicit}`)
-      lines.push(`  - outcome=${h.outcome_explicit}, time_bound=${h.time_bound}, number=${h.number_present}, power_words=[${h.power_words.join(', ')}]`)
+      lines.push(`  - outcome=${h.outcome_explicit}, time_bound=${h.time_bound}, number=${h.number_present}, power_words=[${(h.power_words ?? []).join(', ')}]`)
       lines.push(`  - emotional_register=${h.emotional_register ?? '?'}, tone=${h.tone_register ?? '?'}`)
-      lines.push(`  - metaphor=${h.uses_metaphor}, negation=${h.uses_negation}, contrast=${h.uses_contrast}, punctuation=[${h.punctuation_signals.join(', ')}]`)
+      lines.push(`  - metaphor=${h.uses_metaphor}, negation=${h.uses_negation}, contrast=${h.uses_contrast}, punctuation=[${(h.punctuation_signals ?? []).join(', ')}]`)
     }
   }
 
@@ -526,7 +526,7 @@ function buildConfirmedElementsBlock(confirmed: ExtractedElements): string {
     lines.push(`Trust signals (${confirmed.trust_signals.length}): ${confirmed.trust_signals.join(', ')}`)
     const t = confirmed.trust_dna
     if (t) {
-      lines.push(`  - types=[${t.types_present.join(', ')}], specific_quantifiers=${t.has_specific_quantifiers}, attribution=${t.source_attribution ?? '?'}`)
+      lines.push(`  - types=[${(t.types_present ?? []).join(', ')}], specific_quantifiers=${t.has_specific_quantifiers}, attribution=${t.source_attribution ?? '?'}`)
     }
   }
 
@@ -1021,7 +1021,7 @@ const COMPREHENSIVE_JSON_SCHEMA_LOSER = `{
   }
 }`
 
-function buildComprehensiveVisionPrompt(
+export function buildComprehensiveVisionPrompt(
   roiAverages: ROIAverage[],
   patternContext: string,
   confirmedElements?: ExtractedElements,
@@ -1159,7 +1159,7 @@ ${schema}
 If pattern_matches is empty because no patterns are available, return [].`
 }
 
-async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): Promise<string> {
+export async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string, visualDescription?: string, mode?: string, spendUsd?: number): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 8192,
@@ -1170,7 +1170,7 @@ async function runBergAnalysis(roiAverages: ROIAverage[], patternContext: string
 }
 
 async function runComprehensiveVisionAnalysis(
-  imageBase64: string,
+  imageBase64: string | null,
   mimeType: string,
   roiAverages: ROIAverage[],
   patternContext: string,
@@ -1195,15 +1195,11 @@ async function runComprehensiveVisionAnalysis(
     messages: [{
       role: 'user',
       content: [
-        {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-            data: imageBase64,
-          },
-        },
-        { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
+        ...(imageBase64 ? [{
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: imageBase64 },
+        }] : []),
+        { type: 'text' as const, text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, mode, spendUsd, evolvedBaseline) },
       ],
     }],
   })
@@ -1212,7 +1208,7 @@ async function runComprehensiveVisionAnalysis(
   return parseClaudeJson(raw)
 }
 
-function parseBergBullets(text: string): string[] {
+export function parseBergBullets(text: string): string[] {
   return text
     .split('\n')
     .filter(l => /^[-*]\s+/.test(l.trim()))
@@ -1336,8 +1332,8 @@ export async function POST(req: NextRequest) {
 
     const [bergText, visionResult] = await Promise.all([
       runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
-      image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
+      (image_base64 || confirmed_elements)
+        ? runComprehensiveVisionAnalysis(image_base64 ?? null, mime_type, roi_averages, patternContext, confirmed_elements, mode, spend_usd, evolvedBaseline)
         : Promise.resolve(null),
     ])
 

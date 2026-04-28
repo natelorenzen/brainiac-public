@@ -218,7 +218,7 @@ export default function DashboardPage() {
         )}
 
         {token && (
-          <SessionHistory token={token} onSelect={handleReopen} />
+          <SessionHistory token={token} onSelect={handleReopen} onReanalyze={handleReopen} />
         )}
 
         {token && (
