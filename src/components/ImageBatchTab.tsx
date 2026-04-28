@@ -12,6 +12,19 @@ import type { ExtractedElements } from '@/app/api/analyze/extract-elements/route
 
 const WINNER_THRESHOLD_USD = 1000
 
+async function readJsonStream(res: Response): Promise<Record<string, unknown>> {
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    text += decoder.decode(value, { stream: !done })
+  }
+  const last = text.split('\n').filter(l => l.trim()).pop() ?? '{}'
+  return JSON.parse(last)
+}
+
 type Mode = 'historical' | 'feedback'
 
 interface ImageCard {
@@ -223,8 +236,8 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${freshToken}` },
         body: JSON.stringify({ image_base64: base64, mime_type }),
       })
-      const data = await res.json()
-      if (res.ok && data.extracted) {
+      const data = await readJsonStream(res)
+      if (data.extracted) {
         setExtractedElements(prev => ({ ...prev, [card.id]: data.extracted }))
         setAwaitingConfirmation(prev => ({ ...prev, [card.id]: true }))
       }
@@ -253,13 +266,18 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
           mode,
         }),
       })
-      const data = await res.json()
       if (!res.ok) {
-        setCardError(prev => ({ ...prev, [card.id]: data.error ?? `Analysis failed (${res.status})` }))
-      } else if (data.comprehensive) {
-        setCardComprehensive(prev => ({ ...prev, [card.id]: data.comprehensive }))
+        const errData = await res.json().catch(() => ({})) as Record<string, unknown>
+        setCardError(prev => ({ ...prev, [card.id]: (errData.error as string) ?? `Analysis failed (${res.status})` }))
       } else {
-        setCardError(prev => ({ ...prev, [card.id]: 'No analysis data returned' }))
+        const data = await readJsonStream(res)
+        if (data.error) {
+          setCardError(prev => ({ ...prev, [card.id]: data.error as string }))
+        } else if (data.comprehensive) {
+          setCardComprehensive(prev => ({ ...prev, [card.id]: data.comprehensive as ComprehensiveAnalysis }))
+        } else {
+          setCardError(prev => ({ ...prev, [card.id]: 'No analysis data returned' }))
+        }
       }
     } catch (e) {
       setCardError(prev => ({ ...prev, [card.id]: e instanceof Error ? e.message : 'Network error' }))

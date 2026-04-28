@@ -1341,49 +1341,59 @@ export async function POST(req: NextRequest) {
   const concept_topic: string | undefined = body.concept_topic
   const mode: string | undefined = body.mode
 
-  const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts, evolvedBaseline] = await Promise.all([
-    getWinningPatterns(),
-    getAllWinningAnalyses(),
-    getLosingPatterns(),
-    getAllLosersForSynthesis(),
-    getFrameworkPrinciples(),
-    concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
-    getLatestBaselineEvolution(),
-  ])
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const ping = setInterval(() => {
+        try { controller.enqueue(encoder.encode('\n')) } catch {}
+      }, 15000)
+      try {
+        const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts, evolvedBaseline] = await Promise.all([
+          getWinningPatterns(),
+          getAllWinningAnalyses(),
+          getLosingPatterns(),
+          getAllLosersForSynthesis(),
+          getFrameworkPrinciples(),
+          concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
+          getLatestBaselineEvolution(),
+        ])
 
-  const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
-  const visualDescription = confirmed_elements?.visual_description
+        const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
+        const visualDescription = confirmed_elements?.visual_description
 
-  let bergText: string
-  let visionResult: Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null
-  try {
-    ;[bergText, visionResult] = await Promise.all([
-      runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
-      image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd, evolvedBaseline)
-        : Promise.resolve(null),
-    ])
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Anthropic API error'
-    return NextResponse.json({ error: msg }, { status: 502 })
-  }
+        const [bergText, visionResult] = await Promise.all([
+          runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
+          image_base64
+            ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd, evolvedBaseline)
+            : Promise.resolve(null),
+        ])
 
-  const bergBullets = parseBergBullets(bergText)
-  const comprehensive: ComprehensiveAnalysis = visionResult
-    ? { ...visionResult, berg_recommendations: bergBullets }
-    : emptyComprehensive(bergBullets)
+        const bergBullets = parseBergBullets(bergText)
+        const comprehensive: ComprehensiveAnalysis = visionResult
+          ? { ...visionResult, berg_recommendations: bergBullets }
+          : emptyComprehensive(bergBullets)
 
-  if (analysis_id) {
-    await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
+        if (analysis_id) {
+          await storeComprehensiveAnalysis(analysis_id, comprehensive as unknown as Record<string, unknown>, spend_usd)
 
-    if (spend_usd !== undefined) {
-      fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ triggered_by: analysis_id }),
-      }).catch(() => { /* fire and forget */ })
-    }
-  }
+          if (spend_usd !== undefined) {
+            fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/analyze/synthesize-patterns`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ triggered_by: analysis_id }),
+            }).catch(() => { /* fire and forget */ })
+          }
+        }
 
-  return NextResponse.json({ comprehensive })
+        controller.enqueue(encoder.encode(JSON.stringify({ comprehensive }) + '\n'))
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Analysis failed'
+        controller.enqueue(encoder.encode(JSON.stringify({ error: msg }) + '\n'))
+      } finally {
+        clearInterval(ping)
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, { headers: { 'Content-Type': 'application/json' } })
 }

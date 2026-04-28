@@ -215,24 +215,30 @@ export async function POST(req: NextRequest) {
 
   const { image_base64, mime_type = 'image/jpeg' } = body
 
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mime_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: image_base64,
-            },
-          },
-          {
-            type: 'text',
-            text: `Extract every text and visual element from this ad image AND classify its full structural DNA.
+  const encoder = new TextEncoder()
+  const body = new ReadableStream({
+    async start(controller) {
+      const ping = setInterval(() => {
+        try { controller.enqueue(encoder.encode('\n')) } catch {}
+      }, 15000)
+      try {
+        const message = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4096,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mime_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                  data: image_base64,
+                },
+              },
+              {
+                type: 'text',
+                text: `Extract every text and visual element from this ad image AND classify its full structural DNA.
 
 Rules:
 - Quote exact text verbatim — do not paraphrase, interpret, or infer.
@@ -244,18 +250,24 @@ Rules:
 
 Return a JSON object with EXACTLY this structure — no markdown fences, no extra keys, no commentary:
 ${EXTRACT_SCHEMA}`,
-          },
-        ],
-      }],
-    })
+              },
+            ],
+          }],
+        })
 
-    const textBlock = message.content.find(b => b.type === 'text')
-    const raw = textBlock?.type === 'text' ? textBlock.text : ''
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const extracted: ExtractedElements = JSON.parse(cleaned)
-    return NextResponse.json({ extracted })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Extraction failed'
-    return NextResponse.json({ error: msg }, { status: 502 })
-  }
+        const textBlock = message.content.find(b => b.type === 'text')
+        const raw = textBlock?.type === 'text' ? textBlock.text : ''
+        const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+        const extracted: ExtractedElements = JSON.parse(cleaned)
+        controller.enqueue(encoder.encode(JSON.stringify({ extracted }) + '\n'))
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Extraction failed'
+        controller.enqueue(encoder.encode(JSON.stringify({ error: msg }) + '\n'))
+      } finally {
+        clearInterval(ping)
+        controller.close()
+      }
+    },
+  })
+  return new Response(body, { headers: { 'Content-Type': 'application/json' } })
 }
