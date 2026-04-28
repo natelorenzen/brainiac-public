@@ -80,7 +80,12 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     version: number
     ads_analyzed: number
     last_updated_at: string | null
+    current_milestone: number
+    last_milestone: number
+    pending_milestone_update: boolean
   } | null>(null)
+  const [updatingBaseline, setUpdatingBaseline] = useState(false)
+  const [baselineError, setBaselineError] = useState<string | null>(null)
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -127,10 +132,45 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   }, [])
 
   const feedbackLocked = userAdCount !== null && userAdCount < 10
+  // When a 50-ad milestone has been crossed but the auto baseline-update
+  // didn't write the new evolution row, historical uploads are blocked
+  // until the user clicks the manual safety-net button. Keeps the
+  // pattern-library / feedback baseline in sync with the ad pool.
+  const milestoneLockActive = baselineStatus?.pending_milestone_update === true
 
   useEffect(() => {
     if (feedbackLocked && mode === 'feedback') setMode('historical')
   }, [feedbackLocked])
+
+  useEffect(() => {
+    if (milestoneLockActive && mode === 'historical') setMode('feedback')
+  }, [milestoneLockActive])
+
+  async function handleBaselineUpdate() {
+    if (updatingBaseline) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    setUpdatingBaseline(true)
+    setBaselineError(null)
+    try {
+      const res = await fetch('/api/analyze/baseline-update', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await readJsonStream(res)
+      if (data.error) {
+        setBaselineError(data.error as string)
+      } else if (data.evolved === false) {
+        // Edge case: another tab or the auto path won the race. Just refetch.
+        await fetchBaselineStatus()
+      } else {
+        await fetchBaselineStatus()
+      }
+    } catch (e) {
+      setBaselineError(e instanceof Error ? e.message : 'Update failed')
+    }
+    setUpdatingBaseline(false)
+  }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []).slice(0, 25)
@@ -455,12 +495,18 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
             <button
               key={m}
               onClick={() => setMode(m)}
-              disabled={analyzing || (m === 'feedback' && feedbackLocked)}
-              title={m === 'feedback' && feedbackLocked ? `Unlocks after ${10 - (userAdCount ?? 0)} more historical ads` : undefined}
+              disabled={analyzing || (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive)}
+              title={
+                m === 'feedback' && feedbackLocked
+                  ? `Unlocks after ${10 - (userAdCount ?? 0)} more historical ads`
+                  : m === 'historical' && milestoneLockActive
+                    ? 'Locked — feedback baseline pending update'
+                    : undefined
+              }
               className={[
                 'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
                 mode === m ? 'bg-indigo-600 text-[#fff] shadow-sm' : 'text-gray-400 hover:text-gray-200',
-                m === 'feedback' && feedbackLocked ? 'opacity-40 cursor-not-allowed' : '',
+                (m === 'feedback' && feedbackLocked) || (m === 'historical' && milestoneLockActive) ? 'opacity-40 cursor-not-allowed' : '',
               ].join(' ')}
             >
               {label}
@@ -488,19 +534,42 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
 
       {/* Feedback baseline status */}
       {mode === 'feedback' && !feedbackLocked && baselineStatus && (
-        baselineStatus.has_evolution ? (
-          <p className="text-[10px] text-gray-600 -mt-4">
-            Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
-            <span className="text-gray-700"> · v{baselineStatus.version} ({baselineStatus.ads_analyzed} historical ads)</span>
-          </p>
-        ) : (
-          <p className="text-[10px] text-gray-700 -mt-4">
-            Feedback principles evolve after every 50 historical ads
-            {baselineStatus.ads_analyzed < 50
-              ? ` · ${50 - baselineStatus.ads_analyzed} more needed`
-              : ' · update pending'}
-          </p>
-        )
+        <div className="-mt-4 space-y-2">
+          {baselineStatus.has_evolution ? (
+            <p className="text-[10px] text-gray-600">
+              Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
+              <span className="text-gray-700"> · v{baselineStatus.version} ({baselineStatus.ads_analyzed} historical ads)</span>
+            </p>
+          ) : (
+            <p className="text-[10px] text-gray-700">
+              Feedback principles evolve after every 50 historical ads
+              {baselineStatus.ads_analyzed < 50 ? ` · ${50 - baselineStatus.ads_analyzed} more needed` : ' · update pending'}
+            </p>
+          )}
+
+          {/* Manual safety-net button — enabled only when a milestone was
+              crossed but the auto-update didn't write a new evolution row. */}
+          {milestoneLockActive && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleBaselineUpdate}
+                disabled={updatingBaseline}
+                className="text-[10px] px-2 py-1 rounded border bg-amber-900/30 border-amber-700/60 text-amber-300 hover:bg-amber-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {updatingBaseline
+                  ? 'Updating baseline…'
+                  : `Update baseline now (v${baselineStatus.current_milestone} ready · ${baselineStatus.ads_analyzed} ads)`}
+              </button>
+              <span className="text-[10px] text-amber-400">
+                Historical uploads locked until baseline updates
+              </span>
+            </div>
+          )}
+
+          {baselineError && (
+            <p className="text-[10px] text-red-400">{baselineError}</p>
+          )}
+        </div>
       )}
 
       {/* Upload zone */}
