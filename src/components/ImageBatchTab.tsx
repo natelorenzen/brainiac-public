@@ -62,6 +62,12 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
   const [showExtractionPanel, setShowExtractionPanel] = useState(false)
   const [conceptTopic, setConceptTopic] = useState('')
   const [userAdCount, setUserAdCount] = useState<number | null>(null)
+  const [baselineStatus, setBaselineStatus] = useState<{
+    has_evolution: boolean
+    version: number
+    ads_analyzed: number
+    last_updated_at: string | null
+  } | null>(null)
 
   const cardsRef = useRef<ImageCard[]>([])
   cardsRef.current = cards
@@ -84,7 +90,29 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
     onStatsUpdate?.({ count, totalSpend })
   }
 
-  useEffect(() => { fetchAdCount() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
+  async function fetchBaselineStatus() {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    const res = await fetch('/api/analyze/feedback-baseline-status', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    if (res.ok) setBaselineStatus(await res.json())
+  }
+
+  function formatLastUpdated(iso: string | null): string {
+    if (!iso) return ''
+    const diff = Date.now() - new Date(iso).getTime()
+    const days = Math.floor(diff / 86400000)
+    if (days === 0) return 'today'
+    if (days === 1) return 'yesterday'
+    return `${days} days ago`
+  }
+
+  useEffect(() => {
+    fetchAdCount()
+    fetchBaselineStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const feedbackLocked = userAdCount !== null && userAdCount < 10
 
@@ -424,6 +452,23 @@ export function ImageBatchTab({ token, onStatsUpdate }: Props) {
           </p>
         )}
       </div>
+
+      {/* Feedback baseline status */}
+      {mode === 'feedback' && !feedbackLocked && baselineStatus && (
+        baselineStatus.has_evolution ? (
+          <p className="text-[10px] text-gray-600 -mt-4">
+            Feedback mode last updated {formatLastUpdated(baselineStatus.last_updated_at)}
+            <span className="text-gray-700"> · v{baselineStatus.version} ({baselineStatus.ads_analyzed} historical ads)</span>
+          </p>
+        ) : (
+          <p className="text-[10px] text-gray-700 -mt-4">
+            Feedback principles evolve after every 50 historical ads
+            {baselineStatus.ads_analyzed < 50
+              ? ` · ${50 - baselineStatus.ads_analyzed} more needed`
+              : ' · update pending'}
+          </p>
+        )
+      )}
 
       {/* Concept topic input (feedback mode only) */}
       {mode === 'feedback' && (

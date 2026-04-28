@@ -3,6 +3,26 @@ import { supabaseServer } from '@/lib/supabase-server'
 export const WINNER_THRESHOLD_USD = 1000
 export const LOSER_THRESHOLD_USD = 1000
 
+export interface BaselinePrinciple {
+  principle_text: string
+  category: 'copy' | 'visual' | 'behavioral' | 'structural' | 'audience'
+  type: 'new' | 'reinforced' | 'contradiction' | 'unchanged'
+  scope_awareness: string | null
+  scope_sophistication: number | null
+  evidence_summary: string
+  supporting_winner_count: number
+  supporting_loser_count: number
+}
+
+export interface BaselineEvolutionEntry {
+  id: string
+  version: number
+  ads_analyzed: number
+  principles: BaselinePrinciple[]
+  change_summary: string
+  created_at: string
+}
+
 export interface PatternLibraryRow {
   id: string
   category: 'visual' | 'copy' | 'behavioral' | 'neuroscience' | 'framework'
@@ -217,6 +237,40 @@ export async function upsertFrameworkPrinciples(
       })
     }
   }
+}
+
+export async function getLatestBaselineEvolution(): Promise<BaselineEvolutionEntry | null> {
+  const { data } = await supabaseServer
+    .from('feedback_baseline_evolution')
+    .select('*')
+    .order('version', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return (data as BaselineEvolutionEntry | null) ?? null
+}
+
+export async function getHistoricalAdCount(): Promise<number> {
+  const { count } = await supabaseServer
+    .from('analyses')
+    .select('id', { count: 'exact', head: true })
+    .eq('type', 'thumbnail')
+    .eq('status', 'complete')
+    .not('spend_usd', 'is', null)
+  return count ?? 0
+}
+
+export async function storeBaselineEvolution(
+  version: number,
+  ads_analyzed: number,
+  principles: BaselinePrinciple[],
+  change_summary: string,
+): Promise<void> {
+  await supabaseServer.from('feedback_baseline_evolution').insert({
+    version,
+    ads_analyzed,
+    principles,
+    change_summary,
+  })
 }
 
 export async function upsertAntiPatterns(

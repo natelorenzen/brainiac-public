@@ -7,12 +7,14 @@ import {
   getAllLosersForSynthesis,
   getLosingPatterns,
   getFrameworkPrinciples,
+  getLatestBaselineEvolution,
   storeComprehensiveAnalysis,
   WINNER_THRESHOLD_USD,
   type PatternLibraryRow,
   type LosingPatternRow,
   type WinningAnalysisSummary,
   type FrameworkPrincipleRow,
+  type BaselineEvolutionEntry,
 } from '@/lib/pattern-library'
 import { fetchRedditPosts, type RedditPost } from '@/lib/reddit'
 import type {
@@ -1040,6 +1042,7 @@ function buildComprehensiveVisionPrompt(
   conceptTopic?: string,
   mode?: string,
   spendUsd?: number,
+  evolvedBaseline?: BaselineEvolutionEntry | null,
 ): string {
   const scoreLines = roiAverages
     .map(r => `- ${r.label} (${r.region_key}): ${r.activation.toFixed(3)}`)
@@ -1153,11 +1156,20 @@ FORBIDDEN PHRASES IN FEEDBACK-MODE OUTPUT:
     ? `Analyze this underperforming ad. Quote actual text, describe actual colors and layout, reference actual visual elements. Failure analysis only — what broke down, not what to fix. Do not skip any section.`
     : `Analyze this ad image comprehensively. Quote actual text you see, describe actual colors and layout, reference actual visual elements. No generic feedback. Do not skip any section.`
 
+  const evolvedBaselineBlock = (evolvedBaseline && evolvedBaseline.principles.length > 0)
+    ? `\nEVOLVED BASELINE PRINCIPLES (data-derived — additive to the static baseline above; v${evolvedBaseline.version}, ${evolvedBaseline.ads_analyzed} historical ads):
+These are evidence-based principles derived from accumulated historical ad data. They add specificity to the static baseline. Where a principle describes a "contradiction", both findings are valid under different conditions — the counter-evidence reveals the condition under which the original principle breaks.
+${evolvedBaseline.principles.map((p, i) =>
+  `[E${i + 1}] [${p.category}${p.scope_awareness ? `, ${p.scope_awareness}` : ''}${p.scope_sophistication ? `, soph=${p.scope_sophistication}` : ''}] ${p.principle_text}`
+).join('\n')}`
+    : ''
+
   return `${preamble}
 ${confirmedElements ? `\n${buildConfirmedElementsBlock(confirmedElements)}\n` : ''}
 Writing style: specific and direct — every word earns its place. No filler phrases. Detailed explanations in minimal words.
 
 ${STATIC_FRAMEWORK_BASELINE}
+${evolvedBaselineBlock}
 ${patternContext ? `\n${patternContext}\n` : ''}
 ${redditSection}BERG brain activation scores:
 ${scoreLines}
@@ -1190,6 +1202,7 @@ async function runComprehensiveVisionAnalysis(
   conceptTopic?: string,
   mode?: string,
   spendUsd?: number,
+  evolvedBaseline?: BaselineEvolutionEntry | null,
 ): Promise<Omit<ComprehensiveAnalysis, 'berg_recommendations'> | null> {
   try {
     const message = await anthropic.messages.create({
@@ -1206,7 +1219,7 @@ async function runComprehensiveVisionAnalysis(
               data: imageBase64,
             },
           },
-          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode, spendUsd) },
+          { type: 'text', text: buildComprehensiveVisionPrompt(roiAverages, patternContext, confirmedElements, redditPosts, conceptTopic, mode, spendUsd, evolvedBaseline) },
         ],
       }],
     })
@@ -1328,13 +1341,14 @@ export async function POST(req: NextRequest) {
   const concept_topic: string | undefined = body.concept_topic
   const mode: string | undefined = body.mode
 
-  const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts] = await Promise.all([
+  const [patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples, redditPosts, evolvedBaseline] = await Promise.all([
     getWinningPatterns(),
     getAllWinningAnalyses(),
     getLosingPatterns(),
     getAllLosersForSynthesis(),
     getFrameworkPrinciples(),
     concept_topic ? fetchRedditPosts(concept_topic) : Promise.resolve(null),
+    getLatestBaselineEvolution(),
   ])
 
   const patternContext = buildPatternContext(patterns, winningExamples, losingPatterns, losingExamples, frameworkPrinciples)
@@ -1346,7 +1360,7 @@ export async function POST(req: NextRequest) {
     ;[bergText, visionResult] = await Promise.all([
       runBergAnalysis(roi_averages, patternContext, visualDescription, mode, spend_usd),
       image_base64
-        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd)
+        ? runComprehensiveVisionAnalysis(image_base64, mime_type, roi_averages, patternContext, confirmed_elements, redditPosts ?? undefined, concept_topic, mode, spend_usd, evolvedBaseline)
         : Promise.resolve(null),
     ])
   } catch (e) {
