@@ -413,3 +413,304 @@ export async function upsertAntiPatterns(
     }
   }
 }
+
+// --- Phase 4.4: dimension-level pattern stats (deterministic SQL) ---
+//
+// Pure aggregation over historical analyses. No Claude. Counts how many
+// winners/losers carry each value of a DNA dimension and computes a
+// win rate per value. Used in pattern context AND the Historical
+// Analysis tab.
+
+export interface DimensionStat {
+  dimension: string         // e.g. "headline_dna.structure_type"
+  value: string             // e.g. "pain_agitation"
+  winner_count: number
+  loser_count: number
+  total: number
+  win_rate: number          // 0..1
+}
+
+const DIMENSION_PATHS = [
+  ['headline_dna', 'structure_type'],
+  ['headline_dna', 'emotional_register'],
+  ['headline_dna', 'tone_register'],
+  ['headline_dna', 'specificity_level'],
+  ['headline_dna', 'voice'],
+  ['headline_dna', 'sentence_type'],
+  ['subheadline_dna', 'role'],
+  ['subheadline_dna', 'tonal_shift'],
+  ['benefits_dna', 'pattern_uniformity'],
+  ['benefits_dna', 'outcome_vs_feature_split'],
+  ['trust_dna', 'source_attribution'],
+  ['cta_dna', 'framing'],
+  ['cta_dna', 'friction_level'],
+  ['body_dna', 'frame'],
+  ['ad_format', 'type'],
+  ['market_context', 'awareness_level'],
+] as const
+
+function readDnaValue(ca: Record<string, unknown>, path: readonly string[]): string | null {
+  let cur: unknown = ca
+  // copy.{el}.dna.{field}  OR  el.dna.{field}  OR  {el}.{field}  pattern
+  if (path[0].endsWith('_dna')) {
+    const elKey = path[0].replace('_dna', '')
+    cur = (((ca.copy as Record<string, unknown>)?.[elKey] as Record<string, unknown>)?.dna)
+      ?? ((ca[elKey] as Record<string, unknown>)?.dna)
+      ?? null
+  } else {
+    cur = ca[path[0]]
+  }
+  if (!cur) return null
+  for (let i = 1; i < path.length; i++) {
+    cur = (cur as Record<string, unknown>)?.[path[i]]
+    if (cur == null) return null
+  }
+  return typeof cur === 'string' ? cur : null
+}
+
+export async function getDimensionStats(): Promise<DimensionStat[]> {
+  const { data } = await supabaseServer
+    .from('analyses')
+    .select('comprehensive_analysis, is_winner, spend_usd')
+    .not('comprehensive_analysis', 'is', null)
+    .not('spend_usd', 'is', null)
+
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null; spend_usd: number | null }[]
+
+  const accum = new Map<string, { winner: number; loser: number }>()
+  for (const r of rows) {
+    const isWinner = r.is_winner === true
+    for (const path of DIMENSION_PATHS) {
+      const value = readDnaValue(r.comprehensive_analysis, path)
+      if (!value || value === 'absent') continue
+      const key = `${path.join('.')}=${value}`
+      const cur = accum.get(key) ?? { winner: 0, loser: 0 }
+      if (isWinner) cur.winner += 1
+      else cur.loser += 1
+      accum.set(key, cur)
+    }
+  }
+
+  const out: DimensionStat[] = []
+  for (const [key, counts] of accum.entries()) {
+    const [dimension, value] = key.split('=')
+    const total = counts.winner + counts.loser
+    if (total < 2) continue
+    out.push({
+      dimension,
+      value,
+      winner_count: counts.winner,
+      loser_count: counts.loser,
+      total,
+      win_rate: counts.winner / total,
+    })
+  }
+
+  out.sort((a, b) => b.total - a.total)
+  return out
+}
+
+// --- Phase 4.5: BERG x DNA correlation (Pearson r) ---
+//
+// For each (ROI, scored field) pair, compute Pearson r across all
+// historical ads. This is the connection between brain activation and
+// creative structure that no other tool surfaces. Pure compute.
+
+export interface BergDnaCorrelation {
+  roi_region: string
+  metric_path: string       // e.g. "hook_analysis.scroll_stop_score"
+  r: number
+  n: number
+}
+
+const NUMERIC_METRICS: { label: string; read: (ca: Record<string, unknown>) => number | null }[] = [
+  { label: 'hook_analysis.scroll_stop_score', read: ca => num(((ca.hook_analysis as Record<string, unknown>)?.scroll_stop_score)) },
+  { label: 'cognitive_load.score',           read: ca => num(((ca.cognitive_load as Record<string, unknown>)?.score)) },
+  { label: 'congruence.overall_score',       read: ca => num(((ca.congruence as Record<string, unknown>)?.overall_score)) },
+  { label: 'visual_dimensions.cta_strength', read: ca => num((((ca.visual_dimensions as Record<string, unknown>)?.cta_strength as Record<string, unknown>)?.score)) },
+  { label: 'visual_dimensions.emotional_appeal', read: ca => num((((ca.visual_dimensions as Record<string, unknown>)?.emotional_appeal as Record<string, unknown>)?.score)) },
+  { label: 'visual_dimensions.brand_clarity', read: ca => num((((ca.visual_dimensions as Record<string, unknown>)?.brand_clarity as Record<string, unknown>)?.score)) },
+  { label: 'visual_dimensions.visual_hierarchy', read: ca => num((((ca.visual_dimensions as Record<string, unknown>)?.visual_hierarchy as Record<string, unknown>)?.score)) },
+  { label: 'copy.headline.clarity',          read: ca => num((((ca.copy as Record<string, unknown>)?.headline as Record<string, unknown>)?.clarity)) },
+  { label: 'copy.cta.clarity',               read: ca => num((((ca.copy as Record<string, unknown>)?.cta as Record<string, unknown>)?.clarity)) },
+]
+
+function num(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  return null
+}
+
+function pearson(xs: number[], ys: number[]): number | null {
+  if (xs.length !== ys.length || xs.length < 5) return null
+  const n = xs.length
+  const mx = xs.reduce((a, b) => a + b, 0) / n
+  const my = ys.reduce((a, b) => a + b, 0) / n
+  let num = 0, dx2 = 0, dy2 = 0
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx
+    const dy = ys[i] - my
+    num += dx * dy
+    dx2 += dx * dx
+    dy2 += dy * dy
+  }
+  const denom = Math.sqrt(dx2 * dy2)
+  if (denom === 0) return null
+  return num / denom
+}
+
+export async function getBergDnaCorrelations(): Promise<BergDnaCorrelation[]> {
+  const { data } = await supabaseServer
+    .from('analyses')
+    .select('comprehensive_analysis, roi_data')
+    .not('comprehensive_analysis', 'is', null)
+    .not('roi_data', 'is', null)
+
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; roi_data: Array<{ region_key: string; activation: number }> | null }[]
+
+  // Collect ROI regions across all rows
+  const roiKeys = new Set<string>()
+  for (const r of rows) {
+    for (const region of r.roi_data ?? []) roiKeys.add(region.region_key)
+  }
+
+  const out: BergDnaCorrelation[] = []
+  for (const roi of roiKeys) {
+    for (const metric of NUMERIC_METRICS) {
+      const xs: number[] = []
+      const ys: number[] = []
+      for (const r of rows) {
+        const region = r.roi_data?.find(x => x.region_key === roi)
+        const x = region ? num(region.activation) : null
+        const y = metric.read(r.comprehensive_analysis)
+        if (x != null && y != null) {
+          xs.push(x); ys.push(y)
+        }
+      }
+      const r = pearson(xs, ys)
+      if (r != null && Math.abs(r) >= 0.3 && xs.length >= 5) {
+        out.push({ roi_region: roi, metric_path: metric.label, r, n: xs.length })
+      }
+    }
+  }
+
+  out.sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+  return out
+}
+
+// --- Phase 4.7: deterministic pattern confidence ---
+//
+// Recompute confidence for every pattern row based on its actual
+// supporting count divided by (winner_count + loser_count for the
+// matching anti-pattern, if any). Closer to evidence-derived
+// confidence than the Claude-assigned heuristic value.
+
+export async function recomputePatternConfidence(): Promise<void> {
+  const { data: winners } = await supabaseServer
+    .from('pattern_library')
+    .select('id, rule_text, winner_count')
+    .neq('category', 'framework')
+
+  for (const w of (winners ?? []) as { id: string; rule_text: string; winner_count: number | null }[]) {
+    // Find anti-pattern with similar rule text (same opening 60 chars)
+    const { data: anti } = await supabaseServer
+      .from('anti_pattern_library')
+      .select('loser_count')
+      .ilike('rule_text', w.rule_text.slice(0, 60) + '%')
+      .limit(1)
+      .maybeSingle()
+
+    const wc = w.winner_count ?? 0
+    const lc = anti?.loser_count ?? 0
+    const total = wc + lc
+    const conf = total > 0 ? wc / total : 1.0
+    await supabaseServer
+      .from('pattern_library')
+      .update({ confidence: conf, updated_at: new Date().toISOString() })
+      .eq('id', w.id)
+  }
+}
+
+// --- Per-awareness-level breakdown (Historical Analysis tab) ---
+
+export interface AwarenessBreakdown {
+  awareness_level: string
+  total: number
+  winners: number
+  losers: number
+  win_rate: number
+}
+
+export async function getAwarenessBreakdown(): Promise<AwarenessBreakdown[]> {
+  const { data } = await supabaseServer
+    .from('analyses')
+    .select('comprehensive_analysis, is_winner')
+    .not('comprehensive_analysis', 'is', null)
+    .not('spend_usd', 'is', null)
+
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null }[]
+  const accum = new Map<string, { winners: number; losers: number }>()
+  for (const r of rows) {
+    const aw = ((r.comprehensive_analysis.market_context as Record<string, unknown>)?.awareness_level as string) ?? 'unknown'
+    const cur = accum.get(aw) ?? { winners: 0, losers: 0 }
+    if (r.is_winner === true) cur.winners += 1
+    else cur.losers += 1
+    accum.set(aw, cur)
+  }
+  const out: AwarenessBreakdown[] = []
+  for (const [level, counts] of accum.entries()) {
+    const total = counts.winners + counts.losers
+    out.push({
+      awareness_level: level,
+      total,
+      winners: counts.winners,
+      losers: counts.losers,
+      win_rate: total > 0 ? counts.winners / total : 0,
+    })
+  }
+  return out
+}
+
+// --- All baseline evolution versions (for Historical Analysis tab) ---
+
+export async function getAllBaselineEvolutions(): Promise<BaselineEvolutionEntry[]> {
+  const { data } = await supabaseServer
+    .from('feedback_baseline_evolution')
+    .select('*')
+    .order('version', { ascending: false })
+  return (data ?? []) as BaselineEvolutionEntry[]
+}
+
+// --- Longitudinal trends (Historical Analysis tab) ---
+
+export interface TrendPoint {
+  created_at: string
+  framework_grade: string | null
+  scroll_stop_score: number | null
+  congruence_score: number | null
+  cognitive_load: number | null
+  is_winner: boolean | null
+  spend_usd: number | null
+}
+
+export async function getTrendPoints(): Promise<TrendPoint[]> {
+  const { data } = await supabaseServer
+    .from('analyses')
+    .select('comprehensive_analysis, is_winner, spend_usd, created_at')
+    .not('comprehensive_analysis', 'is', null)
+    .not('spend_usd', 'is', null)
+    .order('created_at', { ascending: true })
+
+  const rows = (data ?? []) as { comprehensive_analysis: Record<string, unknown>; is_winner: boolean | null; spend_usd: number | null; created_at: string }[]
+  return rows.map(r => {
+    const ca = r.comprehensive_analysis
+    return {
+      created_at: r.created_at,
+      framework_grade: ((ca.framework_score as Record<string, unknown>)?.overall_framework_grade as string) ?? null,
+      scroll_stop_score: num((ca.hook_analysis as Record<string, unknown>)?.scroll_stop_score),
+      congruence_score: num((ca.congruence as Record<string, unknown>)?.overall_score),
+      cognitive_load: num((ca.cognitive_load as Record<string, unknown>)?.score),
+      is_winner: r.is_winner,
+      spend_usd: r.spend_usd,
+    }
+  })
+}

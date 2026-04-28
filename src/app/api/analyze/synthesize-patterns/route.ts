@@ -14,6 +14,7 @@ import {
   markSynthesisFailed,
   hasPendingSynthesisJobs,
   setAnalysisLossReason,
+  recomputePatternConfidence,
   WINNER_THRESHOLD_USD,
   type BaselinePrinciple,
 } from '@/lib/pattern-library'
@@ -184,9 +185,11 @@ CRITICAL RULES FOR PATTERN EXTRACTION:
 Here are all ${winners.length} winning ad summaries:
 ${summaries}
 
-Extract 6–10 specific, transferable, non-contradictory rules. Return ONLY a JSON array with no markdown fences:
+Extract 6–10 specific, transferable, non-contradictory rules. Each rule includes the dominant ad_format and vertical_category in its supporting winners so it can be scoped (use null when supporting winners span multiple formats/verticals — those rules apply globally).
+
+Return ONLY a JSON array with no markdown fences:
 [
-  { "category": "visual|copy|behavioral|neuroscience", "rule_text": "<specific actionable rule>", "confidence": <0.0-1.0> }
+  { "category": "visual|copy|behavioral|neuroscience", "rule_text": "<specific actionable rule>", "confidence": <0.0-1.0>, "scope_ad_format": "<dominant format or null>", "scope_vertical": "<dominant vertical or null>" }
 ]`
 
     try {
@@ -199,7 +202,7 @@ Extract 6–10 specific, transferable, non-contradictory rules. Return ONLY a JS
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
       const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as { category: string; rule_text: string; confidence: number }[]
+      const parsed = JSON.parse(cleaned) as { category: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]
       await upsertPatterns(parsed)
       synthesized = parsed.length
     } catch { /* non-fatal */ }
@@ -233,7 +236,7 @@ ${loserSummaries}
 
 Extract 4–8 specific, transferable anti-patterns scoped to their failure reason. Return ONLY a JSON array with no markdown fences:
 [
-  { "category": "visual|copy|behavioral|neuroscience", "loss_reason": "<one of: ${LOSS_REASONS.join(' | ')}>", "rule_text": "<specific avoid/underperforms rule>", "confidence": <0.0-1.0> }
+  { "category": "visual|copy|behavioral|neuroscience", "loss_reason": "<one of: ${LOSS_REASONS.join(' | ')}>", "rule_text": "<specific avoid/underperforms rule>", "confidence": <0.0-1.0>, "scope_ad_format": "<dominant format or null>", "scope_vertical": "<dominant vertical or null>" }
 ]`
 
     try {
@@ -246,7 +249,7 @@ Extract 4–8 specific, transferable anti-patterns scoped to their failure reaso
       const textBlock = message.content.find(b => b.type === 'text')
       const raw = textBlock?.type === 'text' ? textBlock.text : ''
       const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned) as { category: string; loss_reason?: string; rule_text: string; confidence: number }[]
+      const parsed = JSON.parse(cleaned) as { category: string; loss_reason?: string; rule_text: string; confidence: number; scope_ad_format?: string | null; scope_vertical?: string | null }[]
       await upsertAntiPatterns(parsed)
       antiPatterns = parsed.length
     } catch { /* non-fatal */ }
@@ -416,6 +419,10 @@ Return a JSON array of the FULL UPDATED cumulative principle set (include ALL ex
       baselineEvolved = true
     }
   } catch { /* non-fatal — synthesize-patterns continues */ }
+
+    // Recompute every pattern's confidence based on actual winner/loser
+    // counts now that this job's contributions have been written.
+    await recomputePatternConfidence().catch(() => { /* non-fatal */ })
 
     await markSynthesisDone(job.id)
   } catch (e) {
