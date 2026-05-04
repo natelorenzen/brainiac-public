@@ -27,11 +27,7 @@ export const ROI_REGISTRY: Record<string, { label: string; description: string }
   },
 }
 
-/**
- * Extract per-ROI activation scores from the raw activation map.
- * roi_vertex_map is provided by the TRIBE v2 model's brain atlas
- * and maps ROI keys to lists of vertex indices in the ~20k-vertex mesh.
- */
+/** Extract per-ROI activation scores from the raw activation map. */
 export function extractROIActivations(
   activationMap: number[],
   roiVertexMap: Record<string, number[]>

@@ -1,39 +1,29 @@
 import type { Metadata } from 'next'
-import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 
-const plexSans = IBM_Plex_Sans({
+const geistSans = Geist({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-plex-sans',
+  variable: '--font-geist-sans',
   display: 'swap',
 })
 
-const plexMono = IBM_Plex_Mono({
+const geistMono = Geist_Mono({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-plex-mono',
+  variable: '--font-geist-mono',
   display: 'swap',
 })
 
 export const metadata: Metadata = {
-  title: 'Brainiac — Brain Activation Analysis for Creatives',
+  title: 'Adforge — Static Ad Intelligence',
   description:
-    "Upload a thumbnail or connect your Meta Ads account. Brainiac runs Meta FAIR's TRIBE v2 brain encoding model and shows which neural regions activate in response to your creative.",
+    'Upload static ad creatives. Adforge runs BERG fMRI brain activation analysis and Claude Sonnet vision to score copy, behavioral economics, neuroscience, and visual dimensions — and learns from your historical winners and losers.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`} suppressHydrationWarning>
-      {/* Inline script: set theme before first paint to avoid flash */}
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme')||'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})()`,
-          }}
-        />
-      </head>
-      <body className="bg-gray-950 text-white antialiased" suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body className="bg-gray-950 text-white antialiased">
         {children}
       </body>
     </html>

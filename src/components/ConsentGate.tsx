@@ -81,9 +81,9 @@ export function ConsentGate({ onConsent }: Props) {
         <button
           disabled={!allChecked || loading}
           onClick={handleSubmit}
-          className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium
+          className="w-full py-3 bg-indigo-600 text-[#fff] rounded-lg font-medium
                      disabled:opacity-40 disabled:cursor-not-allowed
-                     hover:bg-indigo-500 transition-colors"
+                     hover:bg-indigo-500 transition-colors shadow-sm"
         >
           {loading ? 'Saving…' : 'Continue'}
         </button>

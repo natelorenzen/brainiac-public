@@ -3,7 +3,7 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4">
-        <a href="/" className="text-indigo-400 font-bold">Brainiac</a>
+        <a href="/" className="text-[#ff2a2b] font-bold tracking-tight">Adforge</a>
       </header>
       <main className="max-w-2xl mx-auto px-6 py-12 prose prose-invert prose-sm">
         <h1>Privacy Policy</h1>
@@ -62,7 +62,7 @@ export default function PrivacyPage() {
 
         <h2>Third-Party Services</h2>
         <p>
-          Brainiac uses Supabase (database and authentication), Modal (GPU inference — image data
+          Adforge uses Supabase (database and authentication), Modal (GPU inference — image data
           is processed transiently and not retained by Modal), and Vercel (hosting).
         </p>
 

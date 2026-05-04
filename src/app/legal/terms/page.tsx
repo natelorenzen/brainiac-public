@@ -3,7 +3,7 @@ export default function TermsPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4">
-        <a href="/" className="text-indigo-400 font-bold">Brainiac</a>
+        <a href="/" className="text-[#ff2a2b] font-bold tracking-tight">Adforge</a>
       </header>
       <main className="max-w-2xl mx-auto px-6 py-12 prose prose-invert prose-sm">
         <h1>Terms of Service</h1>
@@ -15,14 +15,14 @@ export default function TermsPage() {
 
         <h2>1. Non-Commercial Research Tool</h2>
         <p>
-          Brainiac operates under the CC-BY-NC-4.0 license for the Meta FAIR TRIBE v2 brain
+          Adforge operates under the CC-BY-NC-4.0 license for the Meta FAIR TRIBE v2 brain
           encoding model. This platform does not charge for analysis features. No paid
           subscriptions, pay-per-analysis, or advertising tied to analysis outputs exist
           while operating under CC-BY-NC-4.0.
         </p>
 
         <h2>2. Data Collection and Use</h2>
-        <p>By using Brainiac, you grant [YOUR COMPANY NAME] a license to:</p>
+        <p>By using Adforge, you grant [YOUR COMPANY NAME] a license to:</p>
         <ul>
           <li>Store uploaded creative assets and run inference on those assets</li>
           <li>Store analysis outputs, metadata (filename, dimensions, timestamp)</li>
@@ -32,7 +32,7 @@ export default function TermsPage() {
 
         <h2>3. Ad Account Connection</h2>
         <p>
-          If you connect an advertising platform account via OAuth, Brainiac stores creative
+          If you connect an advertising platform account via OAuth, Adforge stores creative
           assets and performance metrics (CTR, impressions, spend, ROAS) linked to those
           creatives. We do not store, access, or transmit audience targeting data, customer
           lists, pixel data, or payment information. You can revoke OAuth access at any time.
@@ -58,7 +58,7 @@ export default function TermsPage() {
         <h2>6. No Performance Guarantees</h2>
         <p>
           Results reflect predicted neural activation patterns, not guaranteed content
-          performance. Brainiac makes no claims about the correlation between brain activation
+          performance. Adforge makes no claims about the correlation between brain activation
           scores and content engagement, CTR, views, or revenue.
         </p>
 
